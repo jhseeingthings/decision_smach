@@ -114,7 +114,7 @@ class InLaneDriving(smach.State):
 #########################################
 class ApproachIntersection(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['finished'])
 
     def execute(self, userdata):
         pass
@@ -122,7 +122,7 @@ class ApproachIntersection(smach.State):
 
 class CreepToIntersection(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['finished'])
 
     def execute(self, userdata):
         pass
@@ -141,7 +141,7 @@ class PassIntersection(smach.State):
 #########################################
 class CreepForOpportunity(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['finished'])
 
     def execute(self, userdata):
         pass
@@ -186,7 +186,7 @@ class StopImmediately(smach.State):
 #########################################
 class StructuredRoad(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['switch'])
 
     def execute(self, userdata):
         pass
@@ -195,7 +195,7 @@ class StructuredRoad(smach.State):
 
 class UnStructuredRoad(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['switch'])
 
     def execute(self, userdata):
         pass
@@ -236,51 +236,52 @@ def main():
                         smach.StateMachine.add('EXECUTE_STARTUP', Startup(), transitions = {'succeeded': 'succeeded'})
                     smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions = {'succeeded': 'LANE_FOLLOW'})
 
-                    sm_scenario_lane_follow = smach.StateMachine()
+                    sm_scenario_lane_follow = smach.StateMachine(outcomes = ['park', 're_global_planning', 'intersection', 'u_turn'])
                     with sm_scenario_lane_follow:
-                        smach.StateMachine.add('IN_LANE_DRIVING', InLaneDriving(), transitions = {'park': 'PARK',
+                        smach.StateMachine.add('IN_LANE_DRIVING', InLaneDriving(), transitions = {'park': 'park',
+                                                                                                  're_global_planning': 're_global_planning',
+                                                                                                  'intersection': 'intersection',
+                                                                                                  'u_turn': 'u_turn'})
+                    smach.StateMachine.add('LANE_FOLLOW', sm_scenario_lane_follow, transitions = {'park': 'PARK',
                                                                                                   're_global_planning': 'RE_GLOBAL_PLANNING',
                                                                                                   'intersection': 'INTERSECTION',
                                                                                                   'u_turn': 'U_TURN'})
-                    smach.StateMachine.add('LANE_FOLLOW', sm_scenario_lane_follow)
 
-                    sm_scenario_intersection = smach.StateMachine()
+                    sm_scenario_intersection = smach.StateMachine(outcomes = ['succeeded'])
                     with sm_scenario_intersection:
-                        smach.StateMachine.add('APPROACH_INTERSECTION', ApproachIntersection())
-                        smach.StateMachine.add('CREEP_TO_INTERSECTION', CreepToIntersection())
-                        smach.StateMachine.add('PASS_INTERSECTION', PassIntersection())
-                    smach.StateMachine.add('INTERSECTION', sm_scenario_intersection)
+                        smach.StateMachine.add('APPROACH_INTERSECTION', ApproachIntersection(), transitions = {'finished': 'CREEP_TO_INTERSECTION'})
+                        smach.StateMachine.add('CREEP_TO_INTERSECTION', CreepToIntersection(), transitions = {'finished': 'PASS_INTERSECTION'})
+                        smach.StateMachine.add('PASS_INTERSECTION', PassIntersection(), transitions = {'succeeded': 'succeeded'})
+                    smach.StateMachine.add('INTERSECTION', sm_scenario_intersection, transitions = {'succeeded': 'LANE_FOLLOW'})
 
-                    sm_scenario_u_turn = smach.StateMachine()
+                    sm_scenario_u_turn = smach.StateMachine(outcomes = ['succeeded'])
                     with sm_scenario_u_turn:
-                        smach.StateMachine.add('CREEP_FOR_OPPORTUNITY', CreepForOpportunity())
-                        smach.StateMachine.add('EXECUTE_U_TURN', ExecuteUTurn())
-                    smach.StateMachine.add('U_TURN', sm_scenario_u_turn)
+                        smach.StateMachine.add('CREEP_FOR_OPPORTUNITY', CreepForOpportunity(), transitions = {'finished': 'EXECUTE_U_TURN'})
+                        smach.StateMachine.add('EXECUTE_U_TURN', ExecuteUTurn(), transitions = {'succeeded': 'succeeded'})
+                    smach.StateMachine.add('U_TURN', sm_scenario_u_turn, transitions = {'succeeded': 'LANE_FOLLOW'})
 
-                    sm_scenario_park = smach.StateMachine()
+                    sm_scenario_park = smach.StateMachine(outcomes = ['succeeded'])
                     with sm_scenario_park:
-                        smach.StateMachine.add('APPROACH_PARKING_SPOT', ApproachParkingSpot())
-                        smach.StateMachine.add('EXECUTE_PARK',Park())
-                    smach.StateMachine.add('PARK', sm_scenario_park)
+                        smach.StateMachine.add('APPROACH_PARKING_SPOT', ApproachParkingSpot(), transitions = {'finished': 'EXECUTE_PARK'})
+                        smach.StateMachine.add('EXECUTE_PARK',Park(), transitions = {'succeeded': 'succeeded'})
+                    smach.StateMachine.add('PARK', sm_scenario_park, transitions = {'succeeded': 'STARTUP'})
 
-                    sm_scenario_re_global_Planning = smach.StateMachine()
+                    sm_scenario_re_global_Planning = smach.StateMachine(outcomes = ['succeeded'])
                     with sm_scenario_re_global_Planning:
-                        smach.StateMachine.add('STOP', StopImmediately())
-                    smach.StateMachine.add('RE_GLOBAL_PLANNING', sm_scenario_re_global_Planning)
+                        smach.StateMachine.add('STOP', StopImmediately(), transitions = {'succeeded': 'succeeded'})
+                    smach.StateMachine.add('RE_GLOBAL_PLANNING', sm_scenario_re_global_Planning, transitions = {'succeeded': 'LANE_FOLLOW'})
 
                 sm_con_scenario_unstructured = smach.StateMachine()
                 with sm_con_scenario_unstructured:
-                    smach.StateMachine.add('STRUCTURED_ROAD', StructuredRoad())
-                    smach.StateMachine.add('UNSTRUCTURED_ROAD', UnStructuredRoad())
+                    smach.StateMachine.add('STRUCTURED_ROAD', StructuredRoad(), transitions = {'switch': 'UNSTRUCTURED_ROAD'})
+                    smach.StateMachine.add('UNSTRUCTURED_ROAD', UnStructuredRoad(), transitions = {'switch': 'STRUCTURED_ROAD'})
 
 
                 # Add states to the container
                 smach.Concurrence.add('SCENARIO_MAIN', sm_con_scenario_main)
                 smach.Concurrence.add('SCENARIO_UNSTRUCTURED', sm_con_scenario_unstructured)
 
-            smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario,
-                                   transitions={'outcome4': 'CON',
-                                                'outcome5': 'outcome6'})
+            smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario)
 
             smach.Concurrence.add('EMERGENCY_BRAKE', EmergencyBrake())
 
