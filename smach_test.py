@@ -213,21 +213,17 @@ def main():
     with sm_top:
 
         # Create the sub SMACH state machine
-        sm_con = smach.Concurrence(outcomes=['outcome4', 'outcome5'],
-                                   default_outcome='outcome4',
-                                   outcome_map={'outcome5':
-                                                    {'FOO': 'outcome2',
-                                                     'BAR': 'outcome1'}})
+        sm_con = smach.Concurrence(outcomes=['outcome5'])
         # {'outcome5':{'FOO': 'outcome2','BAR': 'outcome1'}}表示 FOO 和 BAR 输出都要满足条件才会输出 outcome5
 
         # Open the container
         with sm_con:
 
-            sm_con_scenario = smach.StateMachine()
+            sm_con_scenario = smach.StateMachine(outcomes = ['outcome4'])
 
             with sm_con_scenario:
 
-                sm_con_scenario_main = smach.StateMachine()
+                sm_con_scenario_main = smach.StateMachine(outcomes = ['outcome3'])
                 with sm_con_scenario_main:
 
                     sm_scenario_startup = smach.StateMachine(outcomes = ['succeeded'])
@@ -271,7 +267,7 @@ def main():
                         smach.StateMachine.add('STOP', StopImmediately(), transitions = {'succeeded': 'succeeded'})
                     smach.StateMachine.add('RE_GLOBAL_PLANNING', sm_scenario_re_global_Planning, transitions = {'succeeded': 'LANE_FOLLOW'})
 
-                sm_con_scenario_unstructured = smach.StateMachine()
+                sm_con_scenario_unstructured = smach.StateMachine(outcomes = ['outcome2'])
                 with sm_con_scenario_unstructured:
                     smach.StateMachine.add('STRUCTURED_ROAD', StructuredRoad(), transitions = {'switch': 'UNSTRUCTURED_ROAD'})
                     smach.StateMachine.add('UNSTRUCTURED_ROAD', UnStructuredRoad(), transitions = {'switch': 'STRUCTURED_ROAD'})
