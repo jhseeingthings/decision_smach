@@ -160,7 +160,7 @@ class ExecuteUTurn(smach.State):
 #########################################
 class ApproachParkingSpot(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'])
+        smach.State.__init__(self, outcomes = ['finished'])
 
     def execute(self, userdata):
         pass
@@ -207,19 +207,19 @@ def main():
     rospy.init_node('decision_smach')
 
     # Create the top level SMACH state machine
-    sm_top = smach.StateMachine(outcomes=['outcome6'])
+    sm_top = smach.StateMachine(outcomes=[])
 
     # Open the container
     with sm_top:
 
         # Create the sub SMACH state machine
-        sm_con = smach.Concurrence(outcomes=['outcome5'])
+        sm_con = smach.Concurrence(outcomes=['outcome5'], default_outcome='outcome5')
         # {'outcome5':{'FOO': 'outcome2','BAR': 'outcome1'}}表示 FOO 和 BAR 输出都要满足条件才会输出 outcome5
 
         # Open the container
         with sm_con:
 
-            sm_con_scenario = smach.StateMachine(outcomes = ['outcome4'])
+            sm_con_scenario = smach.Concurrence(outcomes = ['outcome4'], default_outcome='outcome4')
 
             with sm_con_scenario:
 
@@ -281,9 +281,9 @@ def main():
 
             smach.Concurrence.add('EMERGENCY_BRAKE', EmergencyBrake())
 
-        smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con)
+        smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions = {'outcome5': 'FINITE_STATE_MACHINE'})
 
-
+# 
 
 
     # Create and start the introspection server
