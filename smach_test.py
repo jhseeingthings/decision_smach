@@ -207,7 +207,7 @@ def main():
     rospy.init_node('decision_smach')
 
     # Create the top level SMACH state machine
-    sm_top = smach.StateMachine(outcomes=['outcome6'])
+    sm_top = smach.StateMachine(outcomes=[])
 
     # Open the container
     with sm_top:
@@ -219,7 +219,7 @@ def main():
         # Open the container
         with sm_con:
 
-            sm_con_scenario = smach.Concurrence(outcomes = ['outcome4'],  default_outcome='outcome4')
+            sm_con_scenario = smach.Concurrence(outcomes = ['outcome4'], default_outcome='outcome4')
 
             with sm_con_scenario:
 
@@ -281,9 +281,9 @@ def main():
 
             smach.Concurrence.add('EMERGENCY_BRAKE', EmergencyBrake())
 
-        smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con)
+        smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions = {'outcome5': 'FINITE_STATE_MACHINE'})
 
-
+# 
 
 
     # Create and start the introspection server
