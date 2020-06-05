@@ -79,6 +79,36 @@ map:
 # #             userdata.foo_output = 3
 # #             return 'outcome2'
 
+
+
+def parking_spot_choose_decider():
+    pass
+
+
+
+def lane_choose_decider():
+    pass
+
+def lane_borrow_decider():
+    pass
+
+def traffic_rules_decider():
+    pass
+
+def speed_limit_decider():
+    pass
+
+def path_bound_decider():
+    pass
+
+def path_priority_decider():
+    pass
+
+def re_global_planning_decider():
+    pass
+
+
+
 #########################################
 class EmergencyBrake(smach.State):
     def __init__(self):
@@ -101,7 +131,6 @@ class Startup(smach.State):
 
     def execute(self, userdata):
         pass
-
 
 #########################################
 class InLaneDriving(smach.State):
@@ -301,7 +330,6 @@ def main():
 
 if __name__ == '__main__':
     main()
-
 
 
 

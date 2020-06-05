@@ -5,7 +5,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="af46e9b5-7fc2-490e-ad37-6ba191aa4064" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/msg.txt" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/smach_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/smach_test.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
@@ -22,10 +21,11 @@
             <file pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/smach_test.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="486">
-                    <caret line="224" lean-forward="true" selection-start-line="224" selection-end-line="224" />
+                  <state relative-caret-position="583">
+                    <caret line="119" lean-forward="true" selection-start-line="119" selection-end-line="119" />
                     <folding>
-                      <marker date="1591196618640" expanded="true" signature="2425:4513" ph="..." />
+                      <marker date="1591269726748" expanded="true" signature="2025:2038" ph="..." />
+                      <marker date="1591269726748" expanded="true" signature="2744:4832" ph="..." />
                     </folding>
                   </state>
                 </provider>
@@ -36,9 +36,33 @@
       </content>
     </window>
   </component>
+  <component name="FUSProjectUsageTrigger">
+    <session id="1102975478">
+      <usages-collector id="statistics.file.extensions.open">
+        <counts>
+          <entry key="txt" value="1" />
+        </counts>
+      </usages-collector>
+      <usages-collector id="statistics.file.types.open">
+        <counts>
+          <entry key="PLAIN_TEXT" value="1" />
+        </counts>
+      </usages-collector>
+      <usages-collector id="statistics.file.extensions.edit">
+        <counts>
+          <entry key="py" value="310" />
+        </counts>
+      </usages-collector>
+      <usages-collector id="statistics.file.types.edit">
+        <counts>
+          <entry key="Python" value="310" />
+        </counts>
+      </usages-collector>
+    </session>
+  </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="484">
@@ -46,6 +70,15 @@
               <folding>
                 <element signature="e#23#35#0" expanded="true" />
               </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/msg.txt">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="393">
+              <caret line="122" column="29" lean-forward="true" selection-start-line="122" selection-start-column="29" selection-end-line="122" selection-end-column="29" />
             </state>
           </provider>
         </entry>
@@ -168,12 +201,27 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/rosmsg.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="2075">
+          <caret line="335" column="56" selection-start-line="335" selection-start-column="56" selection-end-line="335" selection-end-column="56" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/msg.txt">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="393">
+          <caret line="122" column="29" lean-forward="true" selection-start-line="122" selection-start-column="29" selection-end-line="122" selection-end-column="29" />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/smach_test.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="486">
-          <caret line="224" lean-forward="true" selection-start-line="224" selection-end-line="224" />
+        <state relative-caret-position="583">
+          <caret line="119" lean-forward="true" selection-start-line="119" selection-end-line="119" />
           <folding>
-            <marker date="1591196618640" expanded="true" signature="2425:4513" ph="..." />
+            <marker date="1591269726748" expanded="true" signature="2025:2038" ph="..." />
+            <marker date="1591269726748" expanded="true" signature="2744:4832" ph="..." />
           </folding>
         </state>
       </provider>
