@@ -9,164 +9,107 @@ import numpy as np
 import math
 
 
-road_msg = None
-global_pose_msg = None
-obstacles_msg = None
+road_data = None
+global_pose_data = None
+obstacles_data = None
 cur_lane_list = []
 UNCLASSIFIED = False
 NOISE = None
 
 
-class DBSCAN:
-    def __init__(self, m, eps, min_points):
-        self.cluster_result = self.dbscan(m, eps, min_points)
-
-    def _dist(self, p, q):
-        return math.sqrt(np.power(p - q, 2).sum())
-
-    def _eps_neighborhood(self, p, q, eps):
-        return self._dist(p, q) < eps
-
-    def _region_query(self, m, point_id, eps):
-        n_points = m.shape[1]
-        seeds = []
-        for i in range(0, n_points):
-            if self._eps_neighborhood(m[:, point_id], m[:, i], eps):
-                seeds.append(i)
-        return seeds
-
-    def _expand_cluster(self, m, classifications, point_id, cluster_id, eps, min_points):
-        seeds = self._region_query(m, point_id, eps)
-        if len(seeds) < min_points:
-            classifications[point_id] = NOISE
-            return False
-        else:
-            # classifications[point_id] = cluster_id
-            for seed_id in seeds:
-                classifications[seed_id] = cluster_id
-            while len(seeds) > 0:
-                current_point = seeds[0]
-                print(seeds)
-                results = self._region_query(m, current_point, eps)
-                if len(results) >= min_points:
-                    for i in range(0, len(results)):
-                        result_point = results[i]
-                        if classifications[result_point] == UNCLASSIFIED or \
-                           classifications[result_point] == NOISE:
-                            if classifications[result_point] == UNCLASSIFIED:
-                                seeds.append(result_point)
-                            classifications[result_point] = cluster_id
-                seeds = seeds[1:]
-            return True
-
-    def dbscan(self, m, eps, min_points):
-        """Implementation of Density Based Spatial Clustering of Applications with Noise
-        See https://en.wikipedia.org/wiki/DBSCAN
-
-        scikit-learn probably has a better implementation
-
-        Uses Euclidean Distance as the measure
-
-        Inputs:
-        m - A matrix whose columns are feature vectors
-        eps - Maximum distance two points can be to be regionally related
-        min_points - The minimum number of points to make a cluster
-
-        Outputs:
-        An array with either a cluster id number or dbscan.NOISE (None) for each
-        column vector in m.
-        """
-        cluster_id = 1
-        n_points = m.shape[1]
-        classifications = [UNCLASSIFIED] * n_points
-        for point_id in range(0, n_points):
-            point = m[:, point_id]
-            if classifications[point_id] == UNCLASSIFIED: # 对于没有分过类的点
-                if self._expand_cluster(m, classifications, point_id, cluster_id, eps, min_points):
-                    cluster_id = cluster_id + 1
-
-        index_outer = []
-        cluster_number = max(classifications)
-        index_outer.append(cluster_number)
-        for i in range(1, cluster_number + 1):
-            index_inner = []
-            for j in range(len(classifications)):
-                if classifications[j] == i:
-                    index_inner.append(j)
-            index_outer.append(index_inner)
-
-        return classifications, index_outer
 
 
 
-def lane_projection(mapX, mapY, mapNum, curX, curY, curYaw):
-    projectionX = 0
-    projectionY = 0
+def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
+    projection_x = 0
+    projection_y = 0
     index = -1
-    minDistance = 100000.0
-    sTotal = 0
+    min_distance = 100000.0
+    s_total = 0
     before_length = 0
     after_length = 0
-    for i in range(mapNum - 1):
+    for i in range(map_num - 1):
         # a vector of one section in the way
-        vecSection = np.array([mapX[i + 1] - mapX[i], mapY[i + 1] - mapY[i]])
+        vec_section = np.array([map_x[i + 1] - map_x[i], map_y[i + 1] - map_y[i]])
         # a vector pointing from the start point of the section to the query point
-        vecPoint = np.array([curX - mapX[i], curY - mapY[i]])
+        vec_point = np.array([cur_x - map_x[i], cur_y - map_y[i]])
         # calculate the projected point on the section as a 0~1 value with respect to the section length
-        sectionLength = np.linalg.norm(vecSection)
-        sectionLengthSquared = sectionLength * sectionLength
-        k = np.dot(vecSection, vecPoint) / sectionLengthSquared
+        section_length = np.linalg.norm(vec_section)
+        section_length_squared = section_length * section_length
+        k = np.dot(vec_section, vec_point) / section_length_squared
 
         # if the projected point it outside the section, project it to the ends.
         if k >= 1.0:
-            tempProjectionX = mapX[i + 1]
-            tempProjectionY = mapY[i + 1]
+            temp_projection_x = map_x[i + 1]
+            temp_projection_y = map_y[i + 1]
         elif k <= 0.0:
-            tempProjectionX = mapX[i]
-            tempProjectionY = mapY[i]
+            temp_projection_x = map_x[i]
+            temp_projection_y = map_y[i]
         # else, project it perpendicularly.
         else:
-            tempProjectionX = mapX[i] + k * vecSection[0]
-            tempProjectionY = mapY[i] + k * vecSection[1]
+            temp_projection_x = map_x[i] + k * vec_section[0]
+            temp_projection_y = map_y[i] + k * vec_section[1]
 
-        vecOffset = np.array([tempProjectionX - curX, tempProjectionY - curY])
-        sectionDistance = np.linalg.norm(vecOffset)
+        vec_offset = np.array([temp_projection_x - cur_x, temp_projection_y - cur_y])
+        section_distance = np.linalg.norm(vec_offset)
         # record the minimum distance
-        if sectionDistance < minDistance:
-            minDistance = sectionDistance
-            projectionX = tempProjectionX
-            projectionY = tempProjectionY
+        if section_distance < min_distance:
+            min_distance = section_distance
+            projection_x = temp_projection_x
+            projection_y = temp_projection_y
             index = i
 
-    vecMapDir = np.array([mapX[index + 1] - mapX[index], mapY[index + 1] - mapY[index]])
-    vecYawDir = np.array([math.cos(curYaw), math.sin(curYaw)])
-    dirDiff = math.acos(np.dot(vecMapDir, vecYawDir) / (np.linalg.norm(vecMapDir) * np.linalg.norm(vecYawDir)))
+    # offset (lateral distance) with direction
+    vec_section = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+    vec_point = np.array([cur_x - map_x[index], cur_y - map_y[index]])
+    dir_temp = vec_section[1] * vec_point[0] - vec_section[0] * vec_point[1]
+    if dir_temp < 0.0:
+        dir_flag = -1.0
+    elif dir_temp > 0.0:
+        dir_flag = 1.0
+    else:
+        dir_flag = 0.0
+    lateral_distance = dir_flag * min_distance
 
+    # signed direction difference
+    vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+    vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
+    dir_diff = math.acos(np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
+    dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
+    if dir_temp < 0.0:
+        dir_flag = -1.0
+    elif dir_temp > 0.0:
+        dir_flag = 1.0
+    else:
+        dir_flag = 0.0
+    dir_diff_signed = dir_flag * dir_diff
 
     for j in range(0, index):
-        before_length += math.sqrt(math.pow(mapX[j + 1] - mapX[j], 2) + math.pow(mapY[j + 1] - mapY[j], 2))
-    for j in range(index + 1, mapNum - 1):
-        after_length += math.sqrt(math.pow(mapX[j + 1] - mapX[j], 2) + math.pow(mapY[j + 1] - mapY[j], 2))
-    before_length += math.sqrt(math.pow(projectionX - mapX[index], 2) + math.pow(projectionY - mapY[index], 2))
-    after_length += math.sqrt(math.pow(projectionX - mapX[index + 1], 2) + math.pow(projectionY - mapY[index + 1], 2))
+        before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    for j in range(index + 1, map_num - 1):
+        after_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    before_length += math.sqrt(math.pow(projection_x - map_x[index], 2) + math.pow(projection_y - map_y[index], 2))
+    after_length += math.sqrt(math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
 
 
-    return projectionX, projectionY, index, minDistance, dirDiff, before_length, after_length
+    return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
 
 
-def road_callback(road_data):
-    global road_msg
-    road_msg = LaneInfo(road_data)
+def road_callback(road_msg):
+    global road_data
+    road_data = LaneInfo(road_msg)
     # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
 
-def global_pose_callback(global_pose_data):
-    global global_pose_msg
-    global_pose_msg = global_pose_data
+def global_pose_callback(global_pose_msg):
+    global global_pose_data
+    global_pose_data = global_pose_msg
 
-def obstacles_callback(obstacles_data):
-    global obstacles_msg
-    obstacles_msg = obstacles_data
+def obstacles_callback(obstacles_msg):
+    global obstacles_data
+    for i in range(len(obstacles_msg.obstacles)):
+        obstacle_projection_result = ObstacleSelection(obstacles_data.obstacles[i])
+        obstacles_data.append(obstacle_projection_result)
 
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
@@ -182,8 +125,8 @@ def listener():
 
 
 class LaneInfo:
-    def __init__(self, road_data):
-        self.lanes = road_data.lanes
+    def __init__(self, road_msg):
+        self.lanes = road_msg.lanes
         self.preferred = []
         self.offset = []
         self.dir_diff = []
@@ -226,9 +169,9 @@ class LaneInfo:
             for j in range(len(self.lanes[i].points)):
                 self.points_x.append(self.lanes[i].points[j].x)
                 self.points_y.append(self.lanes[i].points[j].y)
-                self.preferred.append(self.lanes[i].preferred)
             self.points_num = len(self.points_x)
-            result = lane_projection(self.points_x, self.points_y, self.points_num, global_pose_msg.mapX, global_pose_msg.mapY, global_pose_msg.mapHeading)
+            result = lane_projection(self.points_x, self.points_y, self.points_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
+            self.preferred.append(self.lanes[i].preferred)
             self.offset.append(result[3])
             self.dir_diff.append(result[4])
             self.before_length.append(result[5])
@@ -237,18 +180,22 @@ class LaneInfo:
         # choose current lane id and index
         DIR_THRESHOLD = 120.0 / 180.0 * 3.14159265
         OFFSET_THRESHOLD = 1.0
-        min_offset = 10000
+        min_offset = 50
         cur_lane_index = -1
         count = 0
         preferred_index_set = []
         preferred_id_set = []
 
+
+
+        # 选择当前车道(找全局规划)
         for i in range(len(self.lanes)):
             abs_offset = abs(self.offset[i])
             abs_dir_diff = abs(self.dir_diff[i])
+            # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
             if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 2 \
-                and self.after_length[i] > 5:
+                    and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 2 \
+                    and self.after_length[i] > 5:
                 count += 1
                 preferred_index_set.append(i)
                 preferred_id_set.append(self.lanes[i].id)
@@ -256,6 +203,7 @@ class LaneInfo:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
                 abs_dir_diff = abs(self.dir_diff[i])
+                # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
                 if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
                         and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 1 \
                         and self.after_length[i] > 5:
@@ -266,6 +214,7 @@ class LaneInfo:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
                 abs_dir_diff = abs(self.dir_diff[i])
+                #
                 if self.lanes[i].relation == 1 and abs_offset < min_offset \
                         and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred > 0 \
                         and self.after_length[i] > 5:
@@ -274,7 +223,7 @@ class LaneInfo:
                     preferred_index_set[0] = i  # 只有一条
                     preferred_id_set[0] = self.lanes[i].id
 
-        # 对于多条符合要求的 lanes ，选一条
+        # 对于多条符合要求的 lanes ，选一条(id 最小的一条，来保证连续性）
         if count != 0:
             min_id = 10000
             min_id_index = -1
@@ -287,6 +236,7 @@ class LaneInfo:
             cur_lane_index = 0
 
         temp_lead_to_id = -1
+        lead_to_index = 0
         for i in range(len(self.lanes[cur_lane_index].leadToIds)):
             for j in range(len(self.lanes)):
                 if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
@@ -397,26 +347,47 @@ class LaneInfo:
 
 
 
-class
 
 class ObstacleSelection:
-    def __init__(self, dynamic_obstacles, static_obstacles):
-        self.id = []
-        self.polygon = []
-        self.direction = []
-        self.theta = []
-        self.center = []
-        self.size = []
-        self.type = []
-        self.confidence = []
-        self.velocity = []
-        self.static_obstacles_process(static_obstacles)
-        self.obstacles_projection()
-    def obstacles_projection(self):
-        road_msg
+    def __init__(self, obstacles_perception):
+        self.id = obstacles_perception.id
+        self.polygon = obstacles_perception.polygon
+        self.direction = obstacles_perception.direction
+        self.theta = obstacles_perception.theta
+        self.center = obstacles_perception.center
+        self.size = obstacles_perception.size
+        self.type = obstacles_perception.type
+        self.confidence = obstacles_perception.confidence
+        self.velocity = obstacles_perception.velocity
 
-    def static_obstacles_process(self, static_obstacles):
-        self.polygon
+        self.s_begin = 0
+        self.s_end = 0
+        self.l_begin = 0
+        self.l_end = 0
+        self.s_velocity = 0
+        self.l_velocity = 0
+        self.obstacle_status = 0
+        self.sub_decision = 0
+        self.safe_distance = 0
+        self.obstacles_projection()
+
+    def obstacles_projection(self):
+        s_range = []
+        l_range = []
+        for i in range(len(self.polygon)):
+            result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, self.polygon[i].x, self.polygon[i].y, self.direction)
+            # L: result[3], S: result[5]
+            s_range.append(result[5])
+            l_range.append(result[3])
+        self.s_begin = min(s_range)
+        self.s_end = max(s_range)
+        self.l_begin = min(l_range)
+        self.l_end = max(l_range)
+        if self.velocity > 0:
+            self.obstacle_status = 1
+            result_center = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, self.center.x, self.center.y, self.direction)
+            self.s_velocity = math.cos(result_center[4]) * self.velocity
+            self.l_velocity = math.sin(result_center[4]) * self.velocity
 
 
 
@@ -424,12 +395,7 @@ class ObstacleSelection:
 
 if __name__ == '__main__':
     listener()
-    m = np.matrix('1 0.8 3.7 1.2 3.9 3.6 10 6; 1.1 1 4 0.8 3.9 4.1 10 7')
-    eps = 0.3
-    min_points = 1
-    print(m.shape[0], m.shape[1])
-    cluster_result = DBSCAN(m, eps, min_points)
-    obstacle_selection_result = ObstacleSelection(obstacles_msg, cluster_result)
+    vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
 
 
 
@@ -438,7 +404,93 @@ if __name__ == '__main__':
 
 
 
+# class DBSCAN:
+#     def __init__(self, m, eps, min_points):
+#         self.cluster_result = self.dbscan(m, eps, min_points)
+# 
+#     def _dist(self, p, q):
+#         return math.sqrt(np.power(p - q, 2).sum())
+# 
+#     def _eps_neighborhood(self, p, q, eps):
+#         return self._dist(p, q) < eps
+# 
+#     def _region_query(self, m, point_id, eps):
+#         n_points = m.shape[1]
+#         seeds = []
+#         for i in range(0, n_points):
+#             if self._eps_neighborhood(m[:, point_id], m[:, i], eps):
+#                 seeds.append(i)
+#         return seeds
+# 
+#     def _expand_cluster(self, m, classifications, point_id, cluster_id, eps, min_points):
+#         seeds = self._region_query(m, point_id, eps)
+#         if len(seeds) < min_points:
+#             classifications[point_id] = NOISE
+#             return False
+#         else:
+#             # classifications[point_id] = cluster_id
+#             for seed_id in seeds:
+#                 classifications[seed_id] = cluster_id
+#             while len(seeds) > 0:
+#                 current_point = seeds[0]
+#                 print(seeds)
+#                 results = self._region_query(m, current_point, eps)
+#                 if len(results) >= min_points:
+#                     for i in range(0, len(results)):
+#                         result_point = results[i]
+#                         if classifications[result_point] == UNCLASSIFIED or \
+#                            classifications[result_point] == NOISE:
+#                             if classifications[result_point] == UNCLASSIFIED:
+#                                 seeds.append(result_point)
+#                             classifications[result_point] = cluster_id
+#                 seeds = seeds[1:]
+#             return True
+# 
+#     def dbscan(self, m, eps, min_points):
+#         """Implementation of Density Based Spatial Clustering of Applications with Noise
+#         See https://en.wikipedia.org/wiki/DBSCAN
+# 
+#         scikit-learn probably has a better implementation
+# 
+#         Uses Euclidean Distance as the measure
+# 
+#         Inputs:
+#         m - A matrix whose columns are feature vectors
+#         eps - Maximum distance two points can be to be regionally related
+#         min_points - The minimum number of points to make a cluster
+# 
+#         Outputs:
+#         An array with either a cluster id number or dbscan.NOISE (None) for each
+#         column vector in m.
+#         """
+#         cluster_id = 1
+#         n_points = m.shape[1]
+#         classifications = [UNCLASSIFIED] * n_points
+#         for point_id in range(0, n_points):
+#             point = m[:, point_id]
+#             if classifications[point_id] == UNCLASSIFIED: # 对于没有分过类的点
+#                 if self._expand_cluster(m, classifications, point_id, cluster_id, eps, min_points):
+#                     cluster_id = cluster_id + 1
+# 
+#         index_outer = []
+#         cluster_number = max(classifications)
+#         index_outer.append(cluster_number)
+#         for i in range(1, cluster_number + 1):
+#             index_inner = []
+#             for j in range(len(classifications)):
+#                 if classifications[j] == i:
+#                     index_inner.append(j)
+#             index_outer.append(index_inner)
+# 
+#         return classifications, index_outer
 
+
+#
+# m = np.matrix('1 0.8 3.7 1.2 3.9 3.6 10 6; 1.1 1 4 0.8 3.9 4.1 10 7')
+#     eps = 0.3
+#     min_points = 1
+#     print(m.shape[0], m.shape[1])
+#     cluster_result = DBSCAN(m, eps, min_points)
 
 
 
