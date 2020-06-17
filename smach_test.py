@@ -167,7 +167,7 @@ class Startup(smach.State):
 #########################################
 class InLaneDriving(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['park', 're_global_planning', 'intersection', 'u_turn'])
+        smach.State.__init__(self, outcomes = ['park', 'intersection', 'u_turn'])
     def execute(self, userdata):
         pass
 
@@ -234,34 +234,21 @@ class Park(smach.State):
     def execute(self, userdata):
         pass
 
+
 #########################################
+class ConditionJudge(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['satisfied'])
+
+    def execute(self, userdata):
+        pass
+
 class StopImmediately(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'])
 
     def execute(self, userdata):
         pass
-
-
-
-#########################################
-class StructuredRoad(smach.State):
-    def __init__(self):
-        smach.State.__init__(self, outcomes = ['switch'])
-
-    def execute(self, userdata):
-        pass
-
-
-
-class UnStructuredRoad(smach.State):
-    def __init__(self):
-        smach.State.__init__(self, outcomes = ['switch'])
-
-    def execute(self, userdata):
-        pass
-
-
 
 
 def main():
@@ -280,7 +267,7 @@ def main():
         # Open the container
         with sm_con:
 
-            sm_con_scenario = smach.Concurrence(outcomes = ['outcome4'], default_outcome='outcome4')
+            sm_con_scenario = smach.StateMachine(outcomes = ['outcome4'])
 
             with sm_con_scenario:
 
@@ -290,14 +277,12 @@ def main():
                     smach.StateMachine.add('EXECUTE_STARTUP', Startup(), transitions = {'succeeded': 'succeeded'})
                 smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions = {'succeeded': 'LANE_FOLLOW'})
 
-                sm_scenario_lane_follow = smach.StateMachine(outcomes = ['park', 're_global_planning', 'intersection', 'u_turn'])
+                sm_scenario_lane_follow = smach.StateMachine(outcomes = ['park', 'intersection', 'u_turn'])
                 with sm_scenario_lane_follow:
                     smach.StateMachine.add('IN_LANE_DRIVING', InLaneDriving(), transitions = {'park': 'park',
-                                                                                              're_global_planning': 're_global_planning',
                                                                                               'intersection': 'intersection',
                                                                                               'u_turn': 'u_turn'})
                 smach.StateMachine.add('LANE_FOLLOW', sm_scenario_lane_follow, transitions = {'park': 'PARK',
-                                                                                              're_global_planning': 'RE_GLOBAL_PLANNING',
                                                                                               'intersection': 'INTERSECTION',
                                                                                               'u_turn': 'U_TURN'})
 
@@ -320,12 +305,14 @@ def main():
                     smach.StateMachine.add('EXECUTE_PARK',Park(), transitions = {'succeeded': 'succeeded'})
                 smach.StateMachine.add('PARK', sm_scenario_park, transitions = {'succeeded': 'STARTUP'})
 
-                sm_scenario_re_global_Planning = smach.StateMachine(outcomes = ['succeeded'])
-                with sm_scenario_re_global_Planning:
-                    smach.StateMachine.add('STOP', StopImmediately(), transitions = {'succeeded': 'succeeded'})
-                smach.StateMachine.add('RE_GLOBAL_PLANNING', sm_scenario_re_global_Planning, transitions = {'succeeded': 'LANE_FOLLOW'})
 
             smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario)
+
+            sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'])
+            with sm_re_global_Planning:
+                smach.StateMachine.add('JUDGE', ConditionJudge(), transitions={'satisfied': 'STOP'})
+                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'JUDGE'})
+            smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
             smach.Concurrence.add('EMERGENCY_BRAKE', EmergencyBrake())
 

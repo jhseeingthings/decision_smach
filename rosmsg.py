@@ -16,7 +16,9 @@ cur_lane_list = []
 UNCLASSIFIED = False
 NOISE = None
 
-
+WIDTH = 1.86
+LENGTH = 4.99
+LENGTH_REAR = 1.50
 
 
 
@@ -353,13 +355,13 @@ class ObstacleSelection:
         self.id = obstacles_perception.id
         self.polygon = obstacles_perception.polygon
         self.direction = obstacles_perception.direction
-        self.theta = obstacles_perception.theta
-        self.center = obstacles_perception.center
-        self.size = obstacles_perception.size
+        self.center = obstacles_perception.center # center[0] x, center[1] y
+        self.size = obstacles_perception.size # size[0] length , size[1] width
         self.type = obstacles_perception.type
         self.confidence = obstacles_perception.confidence
-        self.velocity = obstacles_perception.velocity
+        self.velocity = obstacles_perception.velocity # velocity[0] x, velocity[1] y, velocity[2] z
 
+        self.heading_angle = 0
         self.s_begin = 0
         self.s_end = 0
         self.l_begin = 0
@@ -374,6 +376,8 @@ class ObstacleSelection:
     def obstacles_projection(self):
         s_range = []
         l_range = []
+        self.heading_angle =
+        self.polygon = np.array([self.center[0]])
         for i in range(len(self.polygon)):
             result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, self.polygon[i].x, self.polygon[i].y, self.direction)
             # L: result[3], S: result[5]
@@ -396,6 +400,13 @@ class ObstacleSelection:
 if __name__ == '__main__':
     listener()
     vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
+    vehicle_bound = np.array([global_pose_data.mapX, global_pose_data.mapY])
+
+    lane_test = []
+    boundaryPoints = []
+
+    for i in range(len(boundaryPoints)):
+        result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, )
 
 
 
