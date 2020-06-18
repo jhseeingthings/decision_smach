@@ -314,8 +314,8 @@ def main():
 
             sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
             with sm_emergency_brake:
-                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'satisfied': 'STOP'})
-                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'JUDGE'})
+                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'STOP'})
+                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'EMERGENCY_STOP_STANDBY'})
                 smach.StateMachine.add('EMERGENCY_STOP_STANDBY', StopImmediately(), transitions={'succeeded': 'JUDGE'})
             smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
 
