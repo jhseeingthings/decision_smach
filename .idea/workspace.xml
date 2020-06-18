@@ -5,6 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="af46e9b5-7fc2-490e-ad37-6ba191aa4064" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/referenceLine.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rosmsg.py" beforeDir="false" afterPath="$PROJECT_DIR$/rosmsg.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/smach_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/smach_test.py" afterDir="false" />
@@ -23,8 +24,8 @@
             <file pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/rosmsg.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="458">
-                    <caret line="398" lean-forward="true" selection-start-line="398" selection-end-line="398" />
+                  <state relative-caret-position="250">
+                    <caret line="302" column="62" selection-start-line="302" selection-start-column="62" selection-end-line="302" selection-end-column="62" />
                     <folding>
                       <element signature="e#25#37#0" expanded="true" />
                       <element signature="e#14139#14154#0" />
@@ -40,16 +41,36 @@
     <window id="2">
       <content type="file-editors">
         <state>
-          <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+          <leaf>
             <file pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/smach_test.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="569">
-                    <caret line="333" column="2" lean-forward="true" selection-start-line="333" selection-start-column="2" selection-end-line="333" selection-end-column="2" />
+                  <state relative-caret-position="424">
+                    <caret line="308" column="78" lean-forward="true" selection-start-line="308" selection-start-column="78" selection-end-line="308" selection-end-column="78" />
                     <folding>
-                      <element signature="e#1913#1917#0" />
-                      <marker date="1592105120927" expanded="true" signature="2570:2583" ph="..." />
-                      <marker date="1592105120927" expanded="true" signature="3289:5377" ph="..." />
+                      <marker date="1592469271697" expanded="true" signature="2326:2337" ph="..." />
+                      <marker date="1592469271697" expanded="true" signature="2567:2578" ph="..." />
+                      <marker date="1592469271697" expanded="true" signature="3019:5096" ph="..." />
+                    </folding>
+                  </state>
+                </provider>
+              </entry>
+            </file>
+          </leaf>
+        </state>
+      </content>
+    </window>
+    <window id="3">
+      <content type="file-editors">
+        <state>
+          <leaf>
+            <file pinned="false" current-in-tab="true">
+              <entry file="file://$PROJECT_DIR$/referenceLine.py">
+                <provider selected="true" editor-type-id="text-editor">
+                  <state relative-caret-position="342">
+                    <caret line="19" lean-forward="true" selection-start-line="19" selection-end-line="19" />
+                    <folding>
+                      <marker date="1592407265827" expanded="true" signature="72:77" ph="..." />
                     </folding>
                   </state>
                 </provider>
@@ -65,7 +86,7 @@
       <usages-collector id="statistics.file.extensions.open">
         <counts>
           <entry key="md" value="1" />
-          <entry key="py" value="2" />
+          <entry key="py" value="6" />
           <entry key="txt" value="1" />
         </counts>
       </usages-collector>
@@ -73,17 +94,19 @@
         <counts>
           <entry key="Markdown" value="1" />
           <entry key="PLAIN_TEXT" value="1" />
-          <entry key="Python" value="2" />
+          <entry key="Python" value="6" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.extensions.edit">
         <counts>
-          <entry key="py" value="2152" />
+          <entry key="py" value="3191" />
+          <entry key="txt" value="41" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
-          <entry key="Python" value="2152" />
+          <entry key="PLAIN_TEXT" value="41" />
+          <entry key="Python" value="3191" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.lifecycle.project">
@@ -99,7 +122,7 @@
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
-      <file pinned="false" current-in-tab="false">
+      <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="1188">
@@ -130,7 +153,7 @@
           </provider>
         </entry>
       </file>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/apollo.py">
           <provider selected="true" editor-type-id="text-editor">
             <state relative-caret-position="278">
@@ -197,6 +220,7 @@
         <option value="$PROJECT_DIR$/apollo.py" />
         <option value="$PROJECT_DIR$/msg.txt" />
         <option value="$PROJECT_DIR$/rosmsg.py" />
+        <option value="$PROJECT_DIR$/referenceLine.py" />
         <option value="$PROJECT_DIR$/smach_test.py" />
       </list>
     </option>
@@ -248,13 +272,21 @@
       <option name="presentableId" value="Default" />
       <updated>1587358984044</updated>
     </task>
-    <task id="LOCAL-00001" summary="apollo's decision framework">
-      <created>1591190968439</created>
+    <task id="LOCAL-00001" summary="delete unstructured scenario">
+      <created>1592105184016</created>
       <option name="number" value="00001" />
       <option name="presentableId" value="LOCAL-00001" />
       <option name="project" value="LOCAL" />
-      <updated>1591190968439</updated>
+      <updated>1592105184016</updated>
     </task>
+    <task id="LOCAL-00002" summary="new version">
+      <created>1592355867753</created>
+      <option name="number" value="00002" />
+      <option name="presentableId" value="LOCAL-00002" />
+      <option name="project" value="LOCAL" />
+      <updated>1592355867753</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="ToolWindowManager">
@@ -283,17 +315,12 @@
   <component name="VcsContentAnnotationSettings">
     <option name="myLimit" value="2678400000" />
   </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="delete unstructured scenario" />
+    <MESSAGE value="new version" />
+    <option name="LAST_COMMIT_MESSAGE" value="new version" />
+  </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1188">
-          <caret line="66" column="45" selection-start-line="66" selection-start-column="45" selection-end-line="66" selection-end-column="45" />
-          <folding>
-            <element signature="e#23#35#0" expanded="true" />
-          </folding>
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/msg.txt">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="-931">
@@ -316,10 +343,30 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1188">
+          <caret line="66" column="45" selection-start-line="66" selection-start-column="45" selection-end-line="66" selection-end-column="45" />
+          <folding>
+            <element signature="e#23#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/referenceLine.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="342">
+          <caret line="19" lean-forward="true" selection-start-line="19" selection-end-line="19" />
+          <folding>
+            <marker date="1592407265827" expanded="true" signature="72:77" ph="..." />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/rosmsg.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="458">
-          <caret line="398" lean-forward="true" selection-start-line="398" selection-end-line="398" />
+        <state relative-caret-position="250">
+          <caret line="302" column="62" selection-start-line="302" selection-start-column="62" selection-end-line="302" selection-end-column="62" />
           <folding>
             <element signature="e#25#37#0" expanded="true" />
             <element signature="e#14139#14154#0" />
@@ -329,12 +376,12 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/smach_test.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="569">
-          <caret line="333" column="2" lean-forward="true" selection-start-line="333" selection-start-column="2" selection-end-line="333" selection-end-column="2" />
+        <state relative-caret-position="424">
+          <caret line="308" column="78" lean-forward="true" selection-start-line="308" selection-start-column="78" selection-end-line="308" selection-end-column="78" />
           <folding>
-            <element signature="e#1913#1917#0" />
-            <marker date="1592105120927" expanded="true" signature="2570:2583" ph="..." />
-            <marker date="1592105120927" expanded="true" signature="3289:5377" ph="..." />
+            <marker date="1592469271697" expanded="true" signature="2326:2337" ph="..." />
+            <marker date="1592469271697" expanded="true" signature="2567:2578" ph="..." />
+            <marker date="1592469271697" expanded="true" signature="3019:5096" ph="..." />
           </folding>
         </state>
       </provider>

@@ -403,10 +403,15 @@ if __name__ == '__main__':
     vehicle_bound = np.array([global_pose_data.mapX, global_pose_data.mapY])
 
     lane_test = []
+    var = [1, 2, 3, 4]
     boundaryPoints = []
-
+    lanePoints = []
+    boundary_point_x = []
     for i in range(len(boundaryPoints)):
+
+        for j in range(len())
         result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, )
+
 
 
 
