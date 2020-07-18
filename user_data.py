@@ -45,10 +45,12 @@ class Bar(smach.State):
         return 'outcome1'
         
 
-def userdata_update(user_data,new_data):
+def userdata_update(user_data):
+    new_data = smach.UserData()
     new_data.data1 = dataStruct(30,40)
     new_data.data2 = 1
     user_data.update(new_data)
+    rospy.loginfo('updating----')
 
 def main():
     rospy.init_node('smach_example_state_machine')
@@ -79,7 +81,7 @@ def main():
     res = pool.apply_async(sm.execute())
     # Execute SMACH plan
     # outcome = sm.execute()
-    pool.apply_async(userdata_update,args=(sm.userdata))
+    pool.apply_async(userdata_update(sm.userdata))
 
 
 
