@@ -80,7 +80,7 @@ def main():
     # outcome = sm.execute()
 
     pool = mp.Process(target=sm.execute)
-    p2 = mp.Process(target=userdata_update, args=(sm.userdata))
+    p2 = mp.Process(target=userdata_update(sm.userdata))
     pool.start()
     p2.start()
 
