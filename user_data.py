@@ -3,7 +3,7 @@
 import rospy
 import smach
 import smach_ros
-
+import multiprocessing as mp
 
 
 class dataStruct:
@@ -16,7 +16,7 @@ class dataStruct:
 # define state Foo
 class Foo(smach.State):
     def __init__(self):
-        smach.State.__init__(self, 
+        smach.State.__init__(self,
                              outcomes=['outcome1','outcome2'],
                              input_keys=['foo_counter_in'],
                              output_keys=['foo_counter_out'])
@@ -41,9 +41,14 @@ class Bar(smach.State):
         rospy.loginfo('Executing state BAR')
         rospy.loginfo('Counter = %f'%user_data.bar_counter_in.x) 
         rospy.loginfo('Counter = %f'%user_data.bar_counter_in.y)   
-	rospy.loginfo('Counter = %f'%user_data.bar_counter_in1)       
+        rospy.loginfo('Counter = %f'%user_data.bar_counter_in1)
         return 'outcome1'
         
+
+def userdata_update(user_data,new_data):
+    new_data.data1 = dataStruct(30,40)
+    new_data.data2 = 1
+    user_data.update(new_data)
 
 def main():
     rospy.init_node('smach_example_state_machine')
@@ -68,10 +73,16 @@ def main():
     # Create and start the introspection server
     sis = smach_ros.IntrospectionServer('my_smach_introspection_server', sm, '/SM_ROOT')
     sis.start()
-    
+
+
+    pool = mp.Pool(processes=2)
+    res = pool.apply_async(sm.execute())
     # Execute SMACH plan
-    outcome = sm.execute()
-    
+    # outcome = sm.execute()
+    pool.apply_async(userdata_update,args=(sm.userdata))
+
+
+
     # Wait for ctrl-c to stop the application
     rospy.spin()
     sis.stop()
