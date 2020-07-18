@@ -5,24 +5,55 @@ from std_msgs.msg import String
 from local_messages.msg import Road
 from local_messages.msg import GlobalPose
 from local_messages.msg import Obstacles
+from local_messages.msg import Boundaries
+from local_messages.msg import Lights
+from local_messages.msg import Signs
+
+
 import numpy as np
 import math
-
+import matplotlib.pyplot as plt
+from matplotlib.path import Path
 
 road_data = None
 global_pose_data = None
-obstacles_data = None
+# obstacles_data = None
+boundaries_data = None
+signs_data = None
+lights_data = None
+
+lane_info = None
+# obstacles_info = None
+obstacles_list = {}
 cur_lane_list = []
 UNCLASSIFIED = False
 NOISE = None
+
 
 WIDTH = 1.86
 LENGTH = 4.99
 LENGTH_REAR = 1.50
 
 
-
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
+    """
+    project the point onto the current lane.
+    :param map_x:
+    :param map_y:
+    :param map_num:
+    :param cur_x:
+    :param cur_y:
+    :param cur_yaw:
+    :param type:
+    :return:
+        projection_x,
+        projection_y,
+        index, the projection point is in [index, index + 1]
+        lateral_distance, lateral projection distance, positive on the left
+        dir_diff_signed,
+        before_length, longitudinal projection distance
+        after_length
+    """
     projection_x = 0
     projection_y = 0
     index = -1
@@ -100,36 +131,165 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
 
 def road_callback(road_msg):
     global road_data
-    road_data = LaneInfo(road_msg)
+    road_data = road_msg
     # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
 
 def global_pose_callback(global_pose_msg):
-    global global_pose_data
+    global global_pose_data, lane_info
     global_pose_data = global_pose_msg
+    # process lane information when the global pose updates
+    if road_data != None:
+        lane_info = LaneInfoUpdate()
+
+def boundaries_callback(boundaries_msg):
+    global boundaries_data
+    boundaries_data = boundaries_msg
+
+def lights_callback(lights_msg):
+    global lights_data
+    lights_data = lights_msg
+
+def signs_callback(signs_msg):
+    global signs_data
+    signs_data = signs_msg
+
 
 def obstacles_callback(obstacles_msg):
-    global obstacles_data
+    global obstacles_data, obstacles_list
+
+    # reset the if_tracked tag
+    for k in obstacles_list.keys():
+        obstacles_list[k].if_tracked = 0
+
     for i in range(len(obstacles_msg.obstacles)):
-        obstacle_projection_result = ObstacleSelection(obstacles_data.obstacles[i])
-        obstacles_data.append(obstacle_projection_result)
+        # update old obstacles
+        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+            obstacles_list['obstacles_msg.obstacles[i].id'].obstacle_update(obstacles_msg.obstacles[i])
+        # generate new obstacle
+        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+            temp_obstacle = Obstacle(obstacles_msg.obstacles[i])
+            obstacles_list['obstacles_msg.obstacles[i].id'] = temp_obstacle
+
+    for k in obstacles_list.keys():
+        if obstacles_list[k].if_tracked == 0:
+            del obstacles_list[k]
+
 
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
-    rospy.init_node('listener', anonymous=True)
+    rospy.init_node('listener', anonymous = True)
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型 第三个参数是回调函数的名称
+
     rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
     rospy.Subscriber("map_road", Road, road_callback)
     rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
+    rospy.Subscriber("boundaries", Boundaries, boundaries_callback)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback)
+
 
     # spin() simply keeps python from exiting until this node is stopped
+    # 只 spin 有 callback 的语句
     rospy.spin()
 
 
+#########################
+# extract center points from two boundaries.
+def getBoundariesCenterPoints(boundary1, boundary2):
+    boundaryPointsNumber1 = len(boundary1)
+    boundaryPointsNumber2 = len(boundary2)
+    midPointsList1 = []
+    midPointsList2 = []
+    for i in range(boundaryPointsNumber1):
+        x1 = boundary1[i][0]
+        y1 = boundary1[i][1]
+        minDistance = 1000000
+        for j in range(boundaryPointsNumber2):
+            x2 = boundary2[j][0]
+            y2 = boundary2[j][1]
+            tempDistance = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+            if (tempDistance < minDistance):
+                minDistance = tempDistance
+                nearestPointX = x2
+                nearestPointY = y2
+        midPointX = (x1 + nearestPointX) / 2
+        midPointY = (y1 + nearestPointY) / 2
+        midPointsList1.append([midPointX, midPointY])
+    for i in range(boundaryPointsNumber2):
+        x2 = boundary2[i][0]
+        y2 = boundary2[i][1]
+        minDistance = 1000000
+        for j in range(boundaryPointsNumber1):
+            x1 = boundary1[j][0]
+            y1 = boundary1[j][1]
+            tempDistance = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
+            if (tempDistance < minDistance):
+                minDistance = tempDistance
+                nearestPointX = x1
+                nearestPointY = y1
+        midPointX = (x2 + nearestPointX) / 2
+        midPointY = (y2 + nearestPointY) / 2
+        midPointsList2.append([midPointX, midPointY])
+    return midPointsList1, midPointsList2
 
-class LaneInfo:
-    def __init__(self, road_msg):
-        self.lanes = road_msg.lanes
-        self.preferred = []
+
+# find the nearest point ahead
+def getClosestPoint(curPointPositionX, curPointPositionY, curPointPositionYaw, pointList):
+    minDistance = 100000
+    closestMidPointX = -1
+    closestMidPointY = -1
+    for i in range(len(pointList)):
+        vehicle2MidPoint = np.array([pointList[i][0] - curPointPositionX, pointList[i][1] - curPointPositionY])
+        vec_yaw = np.array([math.cos(curPointPositionYaw), math.sin(curPointPositionYaw)])
+        cosAngel = np.dot(vehicle2MidPoint, vec_yaw) / np.linalg.norm(vehicle2MidPoint) / np.linalg.norm(vec_yaw)
+        tempDistance = math.sqrt((pointList[i][0] - curPointPositionX) ** 2 + (pointList[i][1] - curPointPositionY) ** 2)
+        if tempDistance < minDistance and cosAngel > 0.5:
+            minDistance = tempDistance
+            closestMidPointX = pointList[i][0]
+            closestMidPointY = pointList[i][1]
+    return closestMidPointX, closestMidPointY
+
+
+# remove duplicated points, rearrange points with direction and distance
+def getBoundariesCenterLine(midPointsList1, midPointsList2, curX, curY, curYaw):
+    preMassMidPointsList = []
+    for i in range(len(midPointsList1)):
+        preMassMidPointsList.append(midPointsList1[i])
+    for i in range(len(midPointsList2)):
+        preMassMidPointsList.append(midPointsList2[i])
+    massMidPointsList = []
+    # 去除重复点
+    for i in range(len(preMassMidPointsList)):
+        if preMassMidPointsList[i] not in massMidPointsList:
+            massMidPointsList.append(preMassMidPointsList[i])
+        else:
+            pass
+    centerLine = []
+    curPointPositionX = curX
+    curPointPositionY = curY
+    curPointPositionYaw = curYaw
+    pointList = []
+    print(massMidPointsList)
+    for i in range(len(massMidPointsList)):
+        pointList.append(massMidPointsList[i])
+    while (1):
+        closestMidPointX, closestMidPointY = getClosestPoint(curPointPositionX, curPointPositionY, curPointPositionYaw,
+                                                             pointList)
+        if closestMidPointX == -1 and closestMidPointY == -1:
+            break
+        centerLine.append([closestMidPointX, closestMidPointY])
+        pointList.remove([closestMidPointX, closestMidPointY])
+        curPointPositionYaw = math.atan2(closestMidPointY - curPointPositionY, closestMidPointX - curPointPositionX)
+        curPointPositionX = closestMidPointX
+        curPointPositionY = closestMidPointY
+
+    return centerLine
+
+
+# update lane information, triggered when the global pose is updated.
+class LaneInfoUpdate:
+    def __init__(self):
+        self.lanes = road_data.lanes
         self.offset = []
         self.dir_diff = []
         self.before_length = [] # 记录对于每一段 lane 已经行驶过的长度
@@ -147,10 +307,10 @@ class LaneInfo:
         self.cur_lane_width = 0
         self.left_lane_width = 0
         self.right_lane_width = 0
-        self.next_stop_x = 0
-        self.next_stop_y = 0
         self.next_stop_type = 0
-        self.turn_type = 0
+        self.dist_to_next_stop = 0
+        self.dist_to_next_road = 0
+        self.cur_turn_type = 0
         self.next_turn_type = 0
         self.can_change_left = 0
         self.can_change_right = 0
@@ -162,18 +322,19 @@ class LaneInfo:
         self.left_preferred = []
         self.right_preferred = []
 
+        self.lane_of_interest = []
 
-    def find_current_lane(self):
+        self.lane_message_process()
+
+    def lane_message_process(self):
         for i in range(len(self.lanes)):
             self.points_x = []
             self.points_y = []
-            self.preferred = []
             for j in range(len(self.lanes[i].points)):
                 self.points_x.append(self.lanes[i].points[j].x)
                 self.points_y.append(self.lanes[i].points[j].y)
             self.points_num = len(self.points_x)
             result = lane_projection(self.points_x, self.points_y, self.points_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
-            self.preferred.append(self.lanes[i].preferred)
             self.offset.append(result[3])
             self.dir_diff.append(result[4])
             self.before_length.append(result[5])
@@ -187,7 +348,6 @@ class LaneInfo:
         count = 0
         preferred_index_set = []
         preferred_id_set = []
-
 
 
         # 选择当前车道(找全局规划)
@@ -242,10 +402,9 @@ class LaneInfo:
         for i in range(len(self.lanes[cur_lane_index].leadToIds)):
             for j in range(len(self.lanes)):
                 if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                    and self.lanes[j].preferred == 2:
+                        and self.lanes[j].preferred == 2:
                     temp_lead_to_id = self.lanes[j].id
                     lead_to_index = j
-                    cur_joint_index = i
                     break
             if temp_lead_to_id != -1:
                 break
@@ -257,7 +416,6 @@ class LaneInfo:
                             and self.lanes[j].preferred == 1:
                         temp_lead_to_id = self.lanes[j].id
                         lead_to_index = j
-                        cur_joint_index = i
                         break
                 if temp_lead_to_id != -1:
                     break
@@ -267,7 +425,7 @@ class LaneInfo:
             self.cur_lane_x.append(self.lanes[cur_lane_index].points[i].x)
             self.cur_lane_y.append(self.lanes[cur_lane_index].points[i].y)
         # merge !!!
-        if self.after_length < 10:
+        if self.after_length[cur_lane_index] < 10 and temp_lead_to_id != -1:
             for j in range(len(self.lanes[lead_to_index].points)):
                 self.cur_lane_x.append(self.lanes[lead_to_index].points[j].x)
                 self.cur_lane_y.append(self.lanes[lead_to_index].points[j].y)
@@ -295,17 +453,24 @@ class LaneInfo:
             self.right_lane_id = -1
 
 
-        if self.lanes[cur_lane_index].stopType == 0:
-            self.next_stop_x = self.lanes[lead_to_index].nextStop.x
-            self.next_stop_y = self.lanes[lead_to_index].nextStop.y
-            self.next_stop_type = self.lanes[lead_to_index].stopType
-        else:
-            self.next_stop_x = self.lanes[cur_lane_index].nextStop.x
-            self.next_stop_y = self.lanes[cur_lane_index].nextStop.y
+        if self.lanes[cur_lane_index].stopType != 0:
+            stop_line_x = self.lanes[cur_lane_index].nextStop.x
+            stop_line_y = self.lanes[cur_lane_index].nextStop.y
+            self.dist_to_next_stop = math.sqrt(math.pow(stop_line_x - global_pose_data.mapX, 2) + pow(stop_line_y - global_pose_data.mapY, 2))
             self.next_stop_type = self.lanes[cur_lane_index].stopType
 
-        self.turn_type = self.lanes[cur_lane_index].turn
-        self.next_turn_type = self.lanes[lead_to_index].turn
+        elif self.lanes[lead_to_index].stopType != 0 and temp_lead_to_id != 0:
+            stop_line_x = self.lanes[lead_to_index].nextStop.x
+            stop_line_y = self.lanes[lead_to_index].nextStop.y
+            dist_section_1 = self.after_length[cur_lane_index]
+            dist_section_2 = math.sqrt(math.pow(stop_line_x - self.lanes[cur_lane_index].points[-1].x, 2) + math.pow(stop_line_y - self.lanes[cur_lane_index].points[-1].y, 2))
+            self.dist_to_next_stop = dist_section_1 + dist_section_2
+            self.next_stop_type = self.lanes[lead_to_index].stopType
+
+        self.dist_to_next_road = self.after_length[cur_lane_index]
+        self.cur_turn_type = self.lanes[cur_lane_index].turn
+        if temp_lead_to_id != 0:
+            self.next_turn_type = self.lanes[lead_to_index].turn
         self.can_change_left = self.lanes[cur_lane_index].canChangeLeft
         self.can_change_right = self.lanes[cur_lane_index].canChangeRight
         self.speed_upper_limit = self.lanes[cur_lane_index].speedUpperLimit
@@ -347,39 +512,90 @@ class LaneInfo:
 
         cur_lane_list.append(self.cur_lane_id)
 
+        vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
 
 
+class Obstacle:
+    def __init__(self, obstacle_msg):
+        self.id = obstacle_msg.id
+        self.type = 0
+        self.length = 0
+        self.width = 0
+        # self.height = 0
+        self.cur_bounding_points = []
 
-class ObstacleSelection:
-    def __init__(self, obstacles_perception):
-        self.id = obstacles_perception.id
-        self.polygon = obstacles_perception.polygon
-        self.direction = obstacles_perception.direction
-        self.center = obstacles_perception.center # center[0] x, center[1] y
-        self.size = obstacles_perception.size # size[0] length , size[1] width
-        self.type = obstacles_perception.type
-        self.confidence = obstacles_perception.confidence
-        self.velocity = obstacles_perception.velocity # velocity[0] x, velocity[1] y, velocity[2] z
+# 时序问题，边界障碍物提取好后，去判断用什么车道作为当前车道，选好当前车道后，做规则障碍物向车道的投影
 
-        self.heading_angle = 0
+        self.if_tracked = 0
+        self.detected_time = []
+        self.history_center_points = []
+        self.history_velocity = []
+        self.history_heading = []
+        self.obstacle_update(obstacle_msg)
+
         self.s_begin = 0
         self.s_end = 0
         self.l_begin = 0
         self.l_end = 0
         self.s_velocity = 0
         self.l_velocity = 0
-        self.obstacle_status = 0
+        self.is_moving = 0
+        if lane_info != None:
+            self.obstacle_projection(lane_info)
+
+        self.on_lane_id = 0
+        self.intention = 0
+        self.predicted_center_points = []
+        self.predicted_headings = []
         self.sub_decision = 0
         self.safe_distance = 0
-        self.obstacles_projection()
 
-    def obstacles_projection(self):
-        s_range = []
-        l_range = []
-        self.heading_angle =
+    # update obstacles information, record the history movements of the obstacles.
+    def obstacle_update(self, obstacle_msg):
+        self.type = obstacle_msg.type
+        self.if_tracked = 1
+        self.cur_bounding_points = obstacle_msg.points
+        # record history trajectory for regular obstacles.
+        if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
+            self.detected_time.append(obstacle_msg.detectedTime)
+            self.history_velocity.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
+            cur_heading = math.atan(obstacle_msg.velocity.y / obstacle_msg.velocity.x)
+            self.history_heading.append(cur_heading)
+
+            # calculate center point
+            center_point_x = np.mean([obstacle_msg.points[i].x for i in range(len(obstacle_msg.points))])
+            center_point_y = np.mean([obstacle_msg.points[i].y for i in range(len(obstacle_msg.points))])
+            self.history_center_points.append([center_point_x, center_point_y])
+
+            project_heading = []
+            project_lateral = []
+            vec_heading = np.array([obstacle_msg.velocity.x, obstacle_msg.velocity.y])
+            vec_lateral = np.array([-obstacle_msg.velocity.y, obstacle_msg.velocity.x])
+            for i in range(len(obstacle_msg.points)):
+                vec_point = np.array([obstacle_msg.points[i].x - center_point_x, obstacle_msg.points[i].y - center_point_y])
+                project_heading.append(np.dot(vec_heading, vec_point) / np.linalg.norm(vec_heading))
+                project_lateral.append(np.dot(vec_lateral, vec_point) / np.linalg.norm(vec_lateral))
+
+            self.length = max(project_heading) - min(project_heading)
+            self.width = max(project_lateral) - min(project_lateral)
+        # for other obstacles, update new information.
+        else:
+            self.detected_time.clear()
+            self.history_center_points.clear()
+            self.history_velocity.clear()
+            self.history_heading.clear()
+            self.detected_time.append(obstacle_msg.detectedTime)
+
+        if lane_info != None:
+            self.obstacle_projection(lane_info)
+
+    # project obstacles onto the lane
+    def obstacle_projection(self, lane_info):
+
         self.polygon = np.array([self.center[0]])
+        s_range, l_range = []
         for i in range(len(self.polygon)):
-            result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, self.polygon[i].x, self.polygon[i].y, self.direction)
+            result = lane_projection(lane_info.cur_lane_x, lane_info.cur_lane_y, lane_info.cur_lane_num, self.polygon[i].x, self.polygon[i].y, self.direction)
             # L: result[3], S: result[5]
             s_range.append(result[5])
             l_range.append(result[3])
@@ -393,13 +609,13 @@ class ObstacleSelection:
             self.s_velocity = math.cos(result_center[4]) * self.velocity
             self.l_velocity = math.sin(result_center[4]) * self.velocity
 
-
+    def obstacle_prediction(self):
+        pass
 
 # int obstacle_lane_distance(local_messages::Obstacle obstacle, local_messages::Lane lane, local_messages::GlobalPose pose, float &distance , vector<float> &obswidth,int &outputflag);
 
 if __name__ == '__main__':
     listener()
-    vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
     vehicle_bound = np.array([global_pose_data.mapX, global_pose_data.mapY])
 
     lane_test = []
@@ -409,9 +625,32 @@ if __name__ == '__main__':
     boundary_point_x = []
     for i in range(len(boundaryPoints)):
 
-        for j in range(len())
-        result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, )
+        for j in range(len()):
+            result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, )
 
+
+    boundary1 =
+    boundary1X, boundary1Y, boundary2X, boundary2Y = [], [], [], []
+    for i in range(len(boundary1)):
+        boundary1X.append(boundary1[i][0])
+        boundary1Y.append(boundary1[i][1])
+    for i in range(len(boundary2)):
+        boundary2X.append(boundary2[i][0])
+        boundary2Y.append(boundary2[i][1])
+
+    midPointsList1, midPointsList2 = getBoundariesCenterPoints(boundary1, boundary2)
+    x1, y1, x2, y2 = [], [], [], []
+    for i in range(len(midPointsList1)):
+        x1.append(midPointsList1[i][0])
+        y1.append(midPointsList1[i][1])
+    for i in range(len(midPointsList2)):
+        x2.append(midPointsList2[i][0])
+        y2.append(midPointsList2[i][1])
+    centerLine = getBoundariesCenterLine(midPointsList1, midPointsList2, curX, curY, curYaw)
+    centerLineX, centerLineY = [], []
+    for i in range(len(centerLine)):
+        centerLineX.append(centerLine[i][0])
+        centerLineY.append(centerLine[i][1])
 
 
 

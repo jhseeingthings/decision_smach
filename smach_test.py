@@ -9,23 +9,6 @@ from smach_ros import MonitorState, IntrospectionServer
 import threading
 from multiprocessing.pool import ThreadPool
 
-"""
-标准数据类型
-在内存中存储的数据可以有多种类型。
-
-例如，一个人的年龄可以用数字来存储，他的名字可以用字符来存储。
-
-Python 定义了一些标准类型，用于存储各种类型的数据。
-
-Python有五个标准的数据类型：
-
-Numbers（数字）
-String（字符串）
-List（列表）
-Tuple（元组）
-Dictionary（字典）
-"""
-
 '''
 FSM:
     Input:
@@ -66,6 +49,49 @@ map:
     roadCurve
 '''
 
+class Obstacle:
+    def __init__(self, obstacle_msg):
+        self.id = obstacle_msg.id
+        self.type = 0
+        self.length = 0
+        self.width = 0
+        # self.height = 0
+
+        self.if_tracked = 0
+        self.detectedTime = []
+        self.history_center_points = []
+        self.history_velocity = []
+        self.history_heading = []
+        self.obstacle_update(obstacle_msg)
+
+        self.s_begin = 0
+        self.s_end = 0
+        self.l_begin = 0
+        self.l_end = 0
+        self.s_velocity = 0
+        self.l_velocity = 0
+        self.is_moving = 0
+        if lane_info != None:
+            self.obstacle_projection(lane_info)
+
+        self.on_lane_id = 0
+        self.intention = 0
+        self.predicted_center_points = []
+        self.predicted_headings = []
+        self.sub_decision = 0
+        self.safe_distance = 0
+
+
+class TrafficSign:
+    def __init__(self):
+        self.light_type = 0
+        self.color = 0
+        self.blinking = False
+        self.remain_time = 0
+        self.position_x = 0
+        self.position_y = 0
+        self.lane
+
 
 
 # class Foo(smach.State):
@@ -91,13 +117,10 @@ map:
 
 # 大决策：当前自车的行为
 # possible values
-MOVE_FORWARD = 1
-MOVE_BACK = 2
-STOP = 3
-EMERGENCY_BRAKE = 4
-TURN = 5
-PARK = 6
-STARTUP = 7
+PATH_FOLLOW = 1
+STOP = 2
+EMERGENCY_BRAKE = 3
+PARK = 4
 
 # 动静态障碍物
 # Is the obstacle static or dynamic?
@@ -111,6 +134,60 @@ OVERTAKE = 1
 GIVE_WAY = 2
 AVOID_COLLISION = 3
 
+def scenario_definition_decider(scenario, userdata):
+    if scenario == '':
+        pass
+
+
+def scenario_transition_decider(scenario, stage, userdata):
+    if scenario == 'STARTUP':
+        if stage == 'STARTUP_CHECK':
+
+            pass
+        elif stage == 'EXECUTE_STARTUP':
+            pass
+        pass
+    elif scenario == 'LANE_FOLLOW':
+        if stage == 'IN_LANE_DRIVING':
+            pass
+        pass
+    elif scenario == 'INTERSECTION':
+        if stage == 'APPROACH_INTERSECTION':
+            pass
+        elif stage == 'CREEP_TO_INTERSECTION':
+            pass
+        elif stage == 'PASS_INTERSECTION':
+            pass
+        pass
+    elif scenario == 'U_TURN':
+        if stage == 'CREEP_FOR_OPPORTUNITY':
+            pass
+        elif stage == 'EXECUTE_U_TURN':
+            pass
+        pass
+    elif scenario == 'PARK':
+        if stage == 'APPROACH_PARKING_SPOT':
+            pass
+        elif stage == 'EXECUTE_PARK':
+            pass
+        pass
+    elif scenario == 'RE_GLOBAL_PLANNING':
+        if stage == 'MOVING_FORWARD':
+            pass
+        elif stage == 'STOP':
+            pass
+        pass
+    elif scenario == 'EMERGENCY_BRAKE':
+        if stage == 'MOVING_FORWARD':
+            pass
+        elif stage == 'STOP':
+            pass
+        elif stage == 'EMERGENCY_STOP_STANDBY':
+            pass
+        pass
+
+
+    pass
 
 def intention_decider():
     pass

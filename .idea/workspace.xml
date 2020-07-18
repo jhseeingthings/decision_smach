@@ -4,8 +4,7 @@
     <bookmark url="file://$PROJECT_DIR$/../Smach/rosmsg.py" description="# 注意node的名字得独一无二但是topic的名字得和你想接收的信息的topic一样！" line="171" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="af46e9b5-7fc2-490e-ad37-6ba191aa4064" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/referenceLine.py" afterDir="false" />
+    <list default="true" id="af46e9b5-7fc2-490e-ad37-6ba191aa4064" name="Default Changelist" comment="new version">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/rosmsg.py" beforeDir="false" afterPath="$PROJECT_DIR$/rosmsg.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/smach_test.py" beforeDir="false" afterPath="$PROJECT_DIR$/smach_test.py" afterDir="false" />
@@ -17,18 +16,17 @@
     <option name="LAST_RESOLUTION" value="IGNORE" />
   </component>
   <component name="DockManager">
-    <window id="1">
+    <window id="3">
       <content type="file-editors">
         <state>
-          <leaf>
+          <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
             <file pinned="false" current-in-tab="true">
-              <entry file="file://$PROJECT_DIR$/rosmsg.py">
+              <entry file="file://$PROJECT_DIR$/referenceLine.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="250">
-                    <caret line="302" column="62" selection-start-line="302" selection-start-column="62" selection-end-line="302" selection-end-column="62" />
+                  <state relative-caret-position="342">
+                    <caret line="19" selection-start-line="19" selection-end-line="19" />
                     <folding>
-                      <element signature="e#25#37#0" expanded="true" />
-                      <element signature="e#14139#14154#0" />
+                      <marker date="1592407265827" expanded="true" signature="72:77" ph="..." />
                     </folding>
                   </state>
                 </provider>
@@ -41,16 +39,15 @@
     <window id="2">
       <content type="file-editors">
         <state>
-          <leaf>
+          <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
             <file pinned="false" current-in-tab="true">
               <entry file="file://$PROJECT_DIR$/smach_test.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="424">
-                    <caret line="308" column="78" lean-forward="true" selection-start-line="308" selection-start-column="78" selection-end-line="308" selection-end-column="78" />
+                  <state relative-caret-position="721">
+                    <caret line="65" selection-start-line="65" selection-end-line="65" />
                     <folding>
-                      <marker date="1592469271697" expanded="true" signature="2326:2337" ph="..." />
-                      <marker date="1592469271697" expanded="true" signature="2567:2578" ph="..." />
-                      <marker date="1592469271697" expanded="true" signature="3019:5096" ph="..." />
+                      <marker date="1594738983425" expanded="true" signature="1940:2152" ph="..." />
+                      <marker date="1594738983425" expanded="true" signature="3281:3285" ph="..." />
                     </folding>
                   </state>
                 </provider>
@@ -60,18 +57,55 @@
         </state>
       </content>
     </window>
-    <window id="3">
+    <window id="1">
       <content type="file-editors">
         <state>
-          <leaf>
+          <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
             <file pinned="false" current-in-tab="true">
-              <entry file="file://$PROJECT_DIR$/referenceLine.py">
+              <entry file="file://$PROJECT_DIR$/rosmsg.py">
                 <provider selected="true" editor-type-id="text-editor">
-                  <state relative-caret-position="342">
-                    <caret line="19" lean-forward="true" selection-start-line="19" selection-end-line="19" />
+                  <state relative-caret-position="-139">
+                    <caret line="542" column="29" lean-forward="true" selection-start-line="542" selection-start-column="29" selection-end-line="542" selection-end-column="29" />
                     <folding>
-                      <marker date="1592407265827" expanded="true" signature="72:77" ph="..." />
+                      <element signature="e#25#37#0" expanded="true" />
+                      <marker date="1594912476834" expanded="true" signature="4979:5210" ph="..." />
+                      <marker date="1594912476834" expanded="true" signature="5252:5256" ph="..." />
                     </folding>
+                  </state>
+                </provider>
+              </entry>
+            </file>
+            <file pinned="false" current-in-tab="false">
+              <entry file="file://$USER_HOME$/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/4b596f7adb5bc7daef385484cdb7d4f7/Message/MessageTemp/2f37eb6a7c02748d6d70288757d13cd9/File/get_boundaries_centerline.py">
+                <provider selected="true" editor-type-id="text-editor">
+                  <state relative-caret-position="270">
+                    <caret line="16" column="7" selection-start-line="16" selection-start-column="7" selection-end-line="16" selection-end-column="7" />
+                  </state>
+                </provider>
+              </entry>
+            </file>
+            <file pinned="false" current-in-tab="false">
+              <entry file="file://$PROJECT_DIR$/../../Vecan_ugv/trafficLight/image_light_detector.py">
+                <provider selected="true" editor-type-id="text-editor">
+                  <state relative-caret-position="4626">
+                    <caret line="270" column="36" selection-start-line="270" selection-start-column="36" selection-end-line="270" selection-end-column="36" />
+                  </state>
+                </provider>
+              </entry>
+            </file>
+          </leaf>
+        </state>
+      </content>
+    </window>
+    <window id="1">
+      <content type="file-editors">
+        <state>
+          <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
+            <file pinned="false" current-in-tab="true">
+              <entry file="file://$PROJECT_DIR$/msgNote.py">
+                <provider selected="true" editor-type-id="text-editor">
+                  <state relative-caret-position="702">
+                    <caret line="141" column="14" selection-start-line="141" selection-start-column="14" selection-end-line="141" selection-end-column="14" />
                   </state>
                 </provider>
               </entry>
@@ -86,7 +120,7 @@
       <usages-collector id="statistics.file.extensions.open">
         <counts>
           <entry key="md" value="1" />
-          <entry key="py" value="6" />
+          <entry key="py" value="26" />
           <entry key="txt" value="1" />
         </counts>
       </usages-collector>
@@ -94,41 +128,55 @@
         <counts>
           <entry key="Markdown" value="1" />
           <entry key="PLAIN_TEXT" value="1" />
-          <entry key="Python" value="6" />
+          <entry key="Python" value="26" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.extensions.edit">
         <counts>
-          <entry key="py" value="3191" />
+          <entry key="Python Console" value="17" />
+          <entry key="py" value="9054" />
           <entry key="txt" value="41" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.file.types.edit">
         <counts>
           <entry key="PLAIN_TEXT" value="41" />
-          <entry key="Python" value="3191" />
+          <entry key="Python" value="9071" />
         </counts>
       </usages-collector>
       <usages-collector id="statistics.lifecycle.project">
         <counts>
-          <entry key="project.closed" value="3" />
+          <entry key="project.closed" value="5" />
           <entry key="project.open.time.10" value="1" />
           <entry key="project.open.time.5" value="1" />
-          <entry key="project.open.time.6" value="1" />
-          <entry key="project.opened" value="3" />
+          <entry key="project.open.time.6" value="2" />
+          <entry key="project.open.time.7" value="1" />
+          <entry key="project.opened" value="5" />
         </counts>
       </usages-collector>
     </session>
   </component>
   <component name="FileEditorManager">
     <leaf SIDE_TABS_SIZE_LIMIT_KEY="300">
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="1188">
-              <caret line="66" column="45" selection-start-line="66" selection-start-column="45" selection-end-line="66" selection-end-column="45" />
+            <state relative-caret-position="1350">
+              <caret line="77" column="45" selection-start-line="76" selection-end-line="77" selection-end-column="45" />
               <folding>
                 <element signature="e#23#35#0" expanded="true" />
+              </folding>
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/path.py">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="432">
+              <caret line="24" column="14" lean-forward="true" selection-start-line="24" selection-start-column="14" selection-end-line="24" selection-end-column="14" />
+              <folding>
+                <element signature="e#47#65#0" expanded="true" />
               </folding>
             </state>
           </provider>
@@ -137,7 +185,7 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/msg.txt">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="-931">
+            <state relative-caret-position="378">
               <caret line="21" selection-start-line="21" selection-end-line="21" />
             </state>
           </provider>
@@ -156,7 +204,7 @@
       <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/apollo.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="278">
+            <state relative-caret-position="3312">
               <caret line="184" column="27" selection-start-line="184" selection-start-column="27" selection-end-line="184" selection-end-column="27" />
             </state>
           </provider>
@@ -178,12 +226,19 @@
       <find>dirDiff</find>
       <find>find_current_lane</find>
       <find>cur_yaw</find>
-      <find>road_msg</find>
-      <find>road_data</find>
       <find>global_pose_data</find>
       <find>obstacles_data</find>
       <find>obstacles_msg</find>
       <find>min_distance</find>
+      <find>next_stop_y</find>
+      <find>road_msg</find>
+      <find>preferred</find>
+      <find>road_data</find>
+      <find>points_x</find>
+      <find>turn_type</find>
+      <find>cur_lane_index</find>
+      <find>ObstacleUpdate</find>
+      <find>getBoundariesCenterPoints</find>
     </findStrings>
     <replaceStrings>
       <replace>projection_x</replace>
@@ -208,6 +263,7 @@
       <replace>dir_diff</replace>
       <replace>road_data</replace>
       <replace>obstacles_data</replace>
+      <replace>cur_turn_type</replace>
     </replaceStrings>
   </component>
   <component name="Git.Settings">
@@ -219,9 +275,13 @@
         <option value="$PROJECT_DIR$/DecisionSmach.py" />
         <option value="$PROJECT_DIR$/apollo.py" />
         <option value="$PROJECT_DIR$/msg.txt" />
-        <option value="$PROJECT_DIR$/rosmsg.py" />
         <option value="$PROJECT_DIR$/referenceLine.py" />
+        <option value="$PROJECT_DIR$/path.py" />
+        <option value="$PROJECT_DIR$/get boundaries centerline.py" />
+        <option value="$PROJECT_DIR$/get_boundaries_centerline.py" />
+        <option value="$PROJECT_DIR$/msgNote.py" />
         <option value="$PROJECT_DIR$/smach_test.py" />
+        <option value="$PROJECT_DIR$/rosmsg.py" />
       </list>
     </option>
   </component>
@@ -235,6 +295,7 @@
       <foldersAlwaysOnTop value="true" />
     </navigator>
     <panes>
+      <pane id="Scope" />
       <pane id="ProjectPane">
         <subPane>
           <expand>
@@ -246,7 +307,6 @@
           <select />
         </subPane>
       </pane>
-      <pane id="Scope" />
     </panes>
   </component>
   <component name="RunDashboard">
@@ -260,6 +320,106 @@
         </RuleState>
       </list>
     </option>
+  </component>
+  <component name="RunManager" selected="Python.get boundaries centerline (1)">
+    <configuration name="get boundaries centerline (1)" type="PythonConfigurationType" factoryName="Python" temporary="true">
+      <module name="DecisionSmach" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/get boundaries centerline.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="get boundaries centerline" type="PythonConfigurationType" factoryName="Python" temporary="true">
+      <module name="DecisionSmach" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$USER_HOME$/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/4b596f7adb5bc7daef385484cdb7d4f7/Message/MessageTemp/2f37eb6a7c02748d6d70288757d13cd9/File" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$USER_HOME$/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/4b596f7adb5bc7daef385484cdb7d4f7/Message/MessageTemp/2f37eb6a7c02748d6d70288757d13cd9/File/get boundaries centerline.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="get_boundaries_centerline" type="PythonConfigurationType" factoryName="Python" temporary="true">
+      <module name="DecisionSmach" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/get_boundaries_centerline.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="path" type="PythonConfigurationType" factoryName="Python" temporary="true">
+      <module name="DecisionSmach" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/path.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.get boundaries centerline" />
+      <item itemvalue="Python.get boundaries centerline (1)" />
+      <item itemvalue="Python.path" />
+      <item itemvalue="Python.get_boundaries_centerline" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.get boundaries centerline (1)" />
+        <item itemvalue="Python.get_boundaries_centerline" />
+        <item itemvalue="Python.get boundaries centerline" />
+        <item itemvalue="Python.path" />
+      </list>
+    </recent_temporary>
   </component>
   <component name="SvnConfiguration">
     <configuration />
@@ -286,27 +446,50 @@
       <option name="project" value="LOCAL" />
       <updated>1592355867753</updated>
     </task>
-    <option name="localTasksCounter" value="3" />
+    <task id="LOCAL-00003" summary="new version">
+      <created>1592469345809</created>
+      <option name="number" value="00003" />
+      <option name="presentableId" value="LOCAL-00003" />
+      <option name="project" value="LOCAL" />
+      <updated>1592469345809</updated>
+    </task>
+    <task id="LOCAL-00004" summary="new version">
+      <created>1592469627730</created>
+      <option name="number" value="00004" />
+      <option name="presentableId" value="LOCAL-00004" />
+      <option name="project" value="LOCAL" />
+      <updated>1592469627730</updated>
+    </task>
+    <option name="localTasksCounter" value="5" />
     <servers />
+  </component>
+  <component name="TodoView">
+    <todo-panel id="selected-file">
+      <is-autoscroll-to-source value="true" />
+    </todo-panel>
+    <todo-panel id="all">
+      <are-packages-shown value="true" />
+      <is-autoscroll-to-source value="true" />
+    </todo-panel>
   </component>
   <component name="ToolWindowManager">
     <frame x="0" y="23" width="1440" height="877" extended-state="0" />
     <editor active="true" />
     <layout>
-      <window_info active="true" content_ui="combo" id="Project" order="0" visible="true" weight="0.24947146" />
+      <window_info content_ui="combo" id="Project" order="0" visible="true" weight="0.24947146" />
       <window_info id="Structure" order="1" side_tool="true" weight="0.25" />
       <window_info id="Favorites" order="2" side_tool="true" />
       <window_info anchor="bottom" id="Message" order="0" />
       <window_info anchor="bottom" id="Find" order="1" />
-      <window_info anchor="bottom" id="Run" order="2" />
-      <window_info anchor="bottom" id="Debug" order="3" weight="0.4" />
+      <window_info anchor="bottom" id="Run" order="2" weight="0.3312102" />
+      <window_info anchor="bottom" id="Debug" order="3" weight="0.27261147" />
       <window_info anchor="bottom" id="Cvs" order="4" weight="0.25" />
       <window_info anchor="bottom" id="Inspection" order="5" weight="0.4" />
-      <window_info anchor="bottom" id="TODO" order="6" />
-      <window_info anchor="bottom" id="Version Control" order="7" />
-      <window_info anchor="bottom" id="Terminal" order="8" visible="true" weight="0.3299363" />
+      <window_info anchor="bottom" id="TODO" order="6" weight="0.3299363" />
+      <window_info anchor="bottom" id="Version Control" order="7" weight="0.3299363" />
+      <window_info anchor="bottom" id="Terminal" order="8" weight="0.3299363" />
       <window_info anchor="bottom" id="Event Log" order="9" side_tool="true" />
-      <window_info anchor="bottom" id="Python Console" order="10" />
+      <window_info anchor="bottom" id="Python Console" order="10" weight="0.3299363" />
       <window_info anchor="right" id="Commander" internal_type="SLIDING" order="0" type="SLIDING" weight="0.4" />
       <window_info anchor="right" id="Ant Build" order="1" weight="0.25" />
       <window_info anchor="right" content_ui="combo" id="Hierarchy" order="2" weight="0.25" />
@@ -321,9 +504,43 @@
     <option name="LAST_COMMIT_MESSAGE" value="new version" />
   </component>
   <component name="editorHistoryManager">
+    <entry file="file://$USER_HOME$/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/4b596f7adb5bc7daef385484cdb7d4f7/Message/MessageTemp/2f37eb6a7c02748d6d70288757d13cd9/File/get boundaries centerline.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="147">
+          <caret line="107" column="40" lean-forward="true" selection-start-line="107" selection-start-column="40" selection-end-line="107" selection-end-column="40" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/get_boundaries_centerline.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="77">
+          <caret line="47" column="24" lean-forward="true" selection-start-line="47" selection-start-column="24" selection-end-line="47" selection-end-column="24" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/get boundaries centerline.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="291">
+          <caret line="52" column="25" lean-forward="true" selection-start-line="52" selection-start-column="25" selection-end-line="52" selection-end-column="25" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../FlowField/guideflow/scripts/vehicle.py">
+      <provider selected="true" editor-type-id="text-editor" />
+    </entry>
+    <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="1350">
+          <caret line="77" column="45" selection-start-line="76" selection-end-line="77" selection-end-column="45" />
+          <folding>
+            <element signature="e#23#35#0" expanded="true" />
+          </folding>
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/msg.txt">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="-931">
+        <state relative-caret-position="378">
           <caret line="21" selection-start-line="21" selection-end-line="21" />
         </state>
       </provider>
@@ -338,51 +555,72 @@
     </entry>
     <entry file="file://$PROJECT_DIR$/apollo.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="278">
+        <state relative-caret-position="3312">
           <caret line="184" column="27" selection-start-line="184" selection-start-column="27" selection-end-line="184" selection-end-column="27" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/DecisionSmach.py">
+    <entry file="file://$PROJECT_DIR$/rosmsg.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="1188">
-          <caret line="66" column="45" selection-start-line="66" selection-start-column="45" selection-end-line="66" selection-end-column="45" />
+        <state relative-caret-position="-139">
+          <caret line="542" column="29" lean-forward="true" selection-start-line="542" selection-start-column="29" selection-end-line="542" selection-end-column="29" />
           <folding>
-            <element signature="e#23#35#0" expanded="true" />
+            <element signature="e#25#37#0" expanded="true" />
+            <marker date="1594912476834" expanded="true" signature="4979:5210" ph="..." />
+            <marker date="1594912476834" expanded="true" signature="5252:5256" ph="..." />
           </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$USER_HOME$/Library/Containers/com.tencent.xinWeChat/Data/Library/Application Support/com.tencent.xinWeChat/2.0b4.0.9/4b596f7adb5bc7daef385484cdb7d4f7/Message/MessageTemp/2f37eb6a7c02748d6d70288757d13cd9/File/get_boundaries_centerline.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="270">
+          <caret line="16" column="7" selection-start-line="16" selection-start-column="7" selection-end-line="16" selection-end-column="7" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/../../Vecan_ugv/trafficLight/image_light_detector.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="4626">
+          <caret line="270" column="36" selection-start-line="270" selection-start-column="36" selection-end-line="270" selection-end-column="36" />
         </state>
       </provider>
     </entry>
     <entry file="file://$PROJECT_DIR$/referenceLine.py">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="342">
-          <caret line="19" lean-forward="true" selection-start-line="19" selection-end-line="19" />
+          <caret line="19" selection-start-line="19" selection-end-line="19" />
           <folding>
             <marker date="1592407265827" expanded="true" signature="72:77" ph="..." />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/rosmsg.py">
+    <entry file="file://$PROJECT_DIR$/smach_test.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="250">
-          <caret line="302" column="62" selection-start-line="302" selection-start-column="62" selection-end-line="302" selection-end-column="62" />
+        <state relative-caret-position="721">
+          <caret line="65" selection-start-line="65" selection-end-line="65" />
           <folding>
-            <element signature="e#25#37#0" expanded="true" />
-            <element signature="e#14139#14154#0" />
+            <marker date="1594738983425" expanded="true" signature="1940:2152" ph="..." />
+            <marker date="1594738983425" expanded="true" signature="3281:3285" ph="..." />
           </folding>
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/smach_test.py">
+    <entry file="file://$PROJECT_DIR$/path.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="424">
-          <caret line="308" column="78" lean-forward="true" selection-start-line="308" selection-start-column="78" selection-end-line="308" selection-end-column="78" />
+        <state relative-caret-position="432">
+          <caret line="24" column="14" lean-forward="true" selection-start-line="24" selection-start-column="14" selection-end-line="24" selection-end-column="14" />
           <folding>
-            <marker date="1592469271697" expanded="true" signature="2326:2337" ph="..." />
-            <marker date="1592469271697" expanded="true" signature="2567:2578" ph="..." />
-            <marker date="1592469271697" expanded="true" signature="3019:5096" ph="..." />
+            <element signature="e#47#65#0" expanded="true" />
           </folding>
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/msgNote.py">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="702">
+          <caret line="141" column="14" selection-start-line="141" selection-start-column="14" selection-end-line="141" selection-end-column="14" />
         </state>
       </provider>
     </entry>
