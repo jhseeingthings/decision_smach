@@ -76,12 +76,20 @@ def main():
     sis = smach_ros.IntrospectionServer('my_smach_introspection_server', sm, '/SM_ROOT')
     sis.start()
 
-
-    pool = mp.Pool(processes=2)
-    res = pool.apply_async(sm.execute())
     # Execute SMACH plan
     # outcome = sm.execute()
-    pool.apply_async(userdata_update(sm.userdata))
+
+    pool = mp.Process(target=sm.execute)
+    p2 = mp.Process(target=userdata_update, args=(sm.userdata))
+    pool.start()
+    p2.start()
+
+    pool.join()
+    p2.join()
+
+    # pool = mp.Pool(processes=2)
+    # res = pool.apply_async(sm.execute())
+    # pool.apply_async(userdata_update(sm.userdata))
 
 
 
