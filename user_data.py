@@ -38,19 +38,23 @@ class Bar(smach.State):
                              input_keys=['bar_counter_in','bar_counter_in1'])
         
     def execute(self, user_data):
-        rospy.loginfo('Executing state BAR')
-        rospy.loginfo('Counter = %f'%user_data.bar_counter_in.x) 
-        rospy.loginfo('Counter = %f'%user_data.bar_counter_in.y)   
-        rospy.loginfo('Counter = %f'%user_data.bar_counter_in1)
+        for i in range(10):
+            rospy.loginfo('Executing state BAR')
+            rospy.loginfo('Counter = %f'%user_data.bar_counter_in.x)
+            rospy.loginfo('Counter = %f'%user_data.bar_counter_in.y)
+            rospy.loginfo('Counter = %f'%user_data.bar_counter_in1)
+            rospy.sleep(1)
         return 'outcome1'
         
 
 def userdata_update(user_data):
     new_data = smach.UserData()
-    new_data.data1 = dataStruct(30,40)
-    new_data.data2 = 1
-    user_data.update(new_data)
-    rospy.loginfo('updating----')
+    for i in range(100):
+        new_data.data1 = dataStruct(30+i, 40)
+        new_data.data2 = 1+i
+        user_data.update(new_data)
+        rospy.loginfo('updating----')
+        rospy.sleep(2)
 
 def main():
     rospy.init_node('smach_example_state_machine')
@@ -70,7 +74,7 @@ def main():
         smach.StateMachine.add('BAR', Bar(), 
                                transitions={'outcome1':'FOO'},
                                remapping={'bar_counter_in':'data1',
-					  'bar_counter_in1':'sm_counter'})
+					                      'bar_counter_in1':'sm_counter'})
 
     # Create and start the introspection server
     sis = smach_ros.IntrospectionServer('my_smach_introspection_server', sm, '/SM_ROOT')
