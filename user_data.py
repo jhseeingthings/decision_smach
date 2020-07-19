@@ -49,7 +49,7 @@ class Bar(smach.State):
 
 def userdata_update(user_data):
     new_data = smach.UserData()
-    for i in range(100):
+    for i in range(10):
         new_data.data1 = dataStruct(30+i, 40)
         new_data.data2 = 1+i
         user_data.update(new_data)
@@ -84,7 +84,7 @@ def main():
     # outcome = sm.execute()
 
     pool = mp.Process(target=sm.execute)
-    p2 = mp.Process(target=userdata_update(sm.userdata))
+    p2 = mp.Process(target=userdata_update, args=(sm.userdata,))
     pool.start()
     p2.start()
 
