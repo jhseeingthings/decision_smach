@@ -5,6 +5,8 @@ import smach
 import smach_ros
 import multiprocessing as mp
 
+new_data = smach.UserData()
+
 
 class dataStruct:
 	def __init__(self, x, y):
@@ -39,6 +41,7 @@ class Bar(smach.State):
         
     def execute(self, user_data):
         for i in range(10):
+            user_data.update(new_data)
             rospy.loginfo('Executing state BAR')
             rospy.loginfo('Counter = %f'%user_data.bar_counter_in.x)
             rospy.loginfo('Counter = %f'%user_data.bar_counter_in.y)
@@ -48,7 +51,7 @@ class Bar(smach.State):
         
 
 def userdata_update(user_data):
-    new_data = smach.UserData()
+    global new_data
     for i in range(10):
         new_data.data1 = dataStruct(30+i, 40)
         new_data.data2 = 1+i
@@ -62,7 +65,7 @@ def main():
     # Create a SMACH state machine
     sm = smach.StateMachine(outcomes=['outcome4'])
     sm.userdata.sm_counter = 0
-    sm.userdata.data1 = dataStruct(10,20)
+    sm.userdata.data1 = dataStruct(10, 20)
     # Open the container
     with sm:
         # Add states to the container
