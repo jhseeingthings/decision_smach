@@ -40,9 +40,13 @@ class Bar(smach.State):
                              input_keys=['bar_counter_in','bar_counter_in1'])
         
     def execute(self, user_data):
-        for i in range(10):
+        rospy.loginfo('Executing state BAR')
+        try:
             user_data.update(new_data)
-            rospy.loginfo('Executing state BAR')
+        except Exception as e:
+            print(e)
+
+        for i in range(10):
             rospy.loginfo('Counter = %f'%user_data.bar_counter_in.x)
             rospy.loginfo('Counter = %f'%user_data.bar_counter_in.y)
             rospy.loginfo('Counter = %f'%user_data.bar_counter_in1)
@@ -63,7 +67,9 @@ def main():
     rospy.init_node('smach_example_state_machine')
 
     # Create a SMACH state machine
-    sm = smach.StateMachine(outcomes=['outcome4'])
+    sm = smach.StateMachine(outcomes=['outcome4'], input_keys=['sm_counter','data1'])
+    # sm = smach.StateMachine(outcomes=['outcome4'], input_keys=['userdata'])
+
     sm.userdata.sm_counter = 0
     sm.userdata.data1 = dataStruct(10, 20)
     # Open the container
