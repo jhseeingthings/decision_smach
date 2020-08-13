@@ -628,7 +628,7 @@ def main():
                 with sm_scenario_merge:
                     smach.StateMachine.add('CREEP_FOR_OPPORTUNITY', CreepForOpportunity(),
                                            transitions={'ready': 'EXECUTE_MERGE'})
-                    smach.StateMachine.add('EXECUTE_MERGE', ExecuteUTurn(),
+                    smach.StateMachine.add('EXECUTE_MERGE', ExecuteMerge(),
                                            transitions={'succeeded': 'succeeded', 'break': 'YIELD_BREAK'})
                     smach.StateMachine.add('YIELD_BREAK', YieldBreak(), transitions={'continue': 'EXECUTE_MERGE'})
                 smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW'})
