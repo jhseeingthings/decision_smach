@@ -38,7 +38,7 @@ class Bar(smach.State):
     def __init__(self):
         smach.State.__init__(self,
                              outcomes=['outcome1'],
-                             input_keys=['data1', 'sm_counter'])
+                             input_keys=['data1', 'sm_counter'], output_keys=['data1'])
 
     def execute(self, user_data):
         rospy.loginfo('Executing state BAR')
@@ -49,13 +49,19 @@ class Bar(smach.State):
         except Exception as e:
             rospy.loginfo(e)
 
-        for i in range(10):
-            rospy.loginfo(data3)
+        for i in range(5):
+            update_data(user_data)
+            rospy.loginfo(data3.x)
             rospy.loginfo('Counter = %f' % user_data.data1.x)
             rospy.loginfo('Counter = %f' % user_data.data1.y)
             rospy.loginfo('Counter = %f' % user_data.sm_counter)
             rospy.sleep(1)
         return 'outcome1'
+
+
+def update_data(user_data):
+    user_data.data1 = data3
+
 
 # update the data periodically. outside the smach.
 def userdata_update(user_data):
@@ -92,6 +98,7 @@ def main():
 
     sm.userdata.sm_counter = 0
     sm.userdata.data1 = dataStruct(10, 20)
+    sm.userdata.data3 = dataStruct(100, 200)
     # Open the container
     with sm:
         # Add states to the container
@@ -118,14 +125,14 @@ def main():
     # p3 = mp.Process(target=fun1)
 
     pool = td.Thread(target=sm.execute)
-    p2 = td.Thread(target=userdata_update, args=(sm.userdata,))
+    #p2 = td.Thread(target=userdata_update, args=(sm.userdata,))
     p3 = td.Thread(target=fun1)
     pool.start()
-    p2.start()
+    #p2.start()
     p3.start()
 
     pool.join()
-    p2.join()
+    #p2.join()
     p3.join()
 
     # pool = mp.Pool(processes=2)
