@@ -22,7 +22,9 @@ boundaries_data = None
 signs_data = None
 lights_data = None
 
-lane_info = None
+lane_info_processed = None
+lane_list = {}
+
 # obstacles_info = None
 obstacles_list = {}
 cur_lane_list = []
@@ -35,15 +37,15 @@ LENGTH = 4.99
 LENGTH_REAR = 1.50
 
 
-def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
+def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw = 0, type = 0):
     """
     project the point onto the current lane.
-    :param map_x:
-    :param map_y:
+    :param map_x: a set of lane points (x coordination)
+    :param map_y: a set of lane points (y coordination)
     :param map_num:
-    :param cur_x:
-    :param cur_y:
-    :param cur_yaw:
+    :param cur_x: point x coordination
+    :param cur_y: point y coordination
+    :param cur_yaw: default value is 0, for mass points projection.
     :param type:
     :return:
         projection_x,
@@ -105,17 +107,20 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
     lateral_distance = dir_flag * min_distance
 
     # signed direction difference
-    vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
-    vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
-    dir_diff = math.acos(np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
-    dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
-    if dir_temp < 0.0:
-        dir_flag = -1.0
-    elif dir_temp > 0.0:
-        dir_flag = 1.0
+    if cur_yaw == 0:
+        dir_diff_signed = 0
     else:
-        dir_flag = 0.0
-    dir_diff_signed = dir_flag * dir_diff
+        vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+        vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
+        dir_diff = math.acos(np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
+        dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
+        if dir_temp < 0.0:
+            dir_flag = -1.0
+        elif dir_temp > 0.0:
+            dir_flag = 1.0
+        else:
+            dir_flag = 0.0
+        dir_diff_signed = dir_flag * dir_diff
 
     for j in range(0, index):
         before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
@@ -128,18 +133,21 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw, type = 0):
     return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
 
-
 def road_callback(road_msg):
-    global road_data
+    global road_data, lane_list
     road_data = road_msg
+
+    lane_list = {} # {'id':'lane'}
+    for k in range(len(road_data.lanes)):
+        lane_list[road_data.lanes[k].id] = road_data.lanes[k]
     # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
 
 def global_pose_callback(global_pose_msg):
-    global global_pose_data, lane_info
+    global global_pose_data, lane_info_processed
     global_pose_data = global_pose_msg
     # process lane information when the global pose updates
     if road_data != None:
-        lane_info = LaneInfoUpdate()
+        lane_info_processed = LaneInfoUpdate()
 
 def boundaries_callback(boundaries_msg):
     global boundaries_data
@@ -153,10 +161,11 @@ def signs_callback(signs_msg):
     global signs_data
     signs_data = signs_msg
 
-
 def obstacles_callback(obstacles_msg):
     global obstacles_data, obstacles_list
 
+    # record road data of the current moment.
+    temp_lane_info = road_data
     # reset the if_tracked tag
     for k in obstacles_list.keys():
         obstacles_list[k].if_tracked = 0
@@ -164,11 +173,11 @@ def obstacles_callback(obstacles_msg):
     for i in range(len(obstacles_msg.obstacles)):
         # update old obstacles
         if obstacles_msg.obstacles[i].id in obstacles_list.keys():
-            obstacles_list['obstacles_msg.obstacles[i].id'].obstacle_update(obstacles_msg.obstacles[i])
+            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
         # generate new obstacle
         if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
-            temp_obstacle = Obstacle(obstacles_msg.obstacles[i])
-            obstacles_list['obstacles_msg.obstacles[i].id'] = temp_obstacle
+            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
 
     for k in obstacles_list.keys():
         if obstacles_list[k].if_tracked == 0:
@@ -178,8 +187,8 @@ def obstacles_callback(obstacles_msg):
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
     rospy.init_node('listener', anonymous = True)
-    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型 第三个参数是回调函数的名称
 
+    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
     rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
     rospy.Subscriber("map_road", Road, road_callback)
     rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
@@ -187,11 +196,9 @@ def listener():
     rospy.Subscriber("traffic_lights", Lights, lights_callback)
     rospy.Subscriber("traffic_signs", Signs, signs_callback)
 
-
     # spin() simply keeps python from exiting until this node is stopped
     # 只 spin 有 callback 的语句
     rospy.spin()
-
 
 #########################
 # extract center points from two boundaries.
@@ -452,7 +459,6 @@ class LaneInfoUpdate:
         else:
             self.right_lane_id = -1
 
-
         if self.lanes[cur_lane_index].stopType != 0:
             stop_line_x = self.lanes[cur_lane_index].nextStop.x
             stop_line_y = self.lanes[cur_lane_index].nextStop.y
@@ -516,22 +522,23 @@ class LaneInfoUpdate:
 
 
 class Obstacle:
-    def __init__(self, obstacle_msg):
+    def __init__(self, obstacle_msg, cur_lane_info):
         self.id = obstacle_msg.id
         self.type = 0
         self.length = 0
         self.width = 0
-        # self.height = 0
+        self.height = 0
         self.cur_bounding_points = []
+        self.cur_velocity = 0
+        self.is_moving = 0
 
-# 时序问题，边界障碍物提取好后，去判断用什么车道作为当前车道，选好当前车道后，做规则障碍物向车道的投影
-
+        # 时序问题，边界障碍物提取好后，去判断用什么车道作为当前车道，选好当前车道后，做规则障碍物向车道的投影
         self.if_tracked = 0
         self.detected_time = []
         self.history_center_points = []
         self.history_velocity = []
         self.history_heading = []
-        self.obstacle_update(obstacle_msg)
+        self.obstacle_update(obstacle_msg, cur_lane_info)
 
         self.s_begin = 0
         self.s_end = 0
@@ -539,9 +546,6 @@ class Obstacle:
         self.l_end = 0
         self.s_velocity = 0
         self.l_velocity = 0
-        self.is_moving = 0
-        if lane_info != None:
-            self.obstacle_projection(lane_info)
 
         self.on_lane_id = 0
         self.intention = 0
@@ -551,10 +555,17 @@ class Obstacle:
         self.safe_distance = 0
 
     # update obstacles information, record the history movements of the obstacles.
-    def obstacle_update(self, obstacle_msg):
+    def obstacle_update(self, obstacle_msg, cur_lane_info):
         self.type = obstacle_msg.type
         self.if_tracked = 1
-        self.cur_bounding_points = obstacle_msg.points
+        self.cur_bounding_points = [[obstacle_msg.points[i].x, obstacle_msg.points[i].y] for i in range(len(obstacle_msg.points))]
+        # like this: [[1, 0], [2, 1], [3, 2], [4, 3], [5, 4], [6, 5], [7, 6], [8, 7], [9, 8], [10, 9]]
+        self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
+        if self.cur_velocity > 0.1:
+            self.is_moving = 1
+        else:
+            self.is_moving = 0
+
         # record history trajectory for regular obstacles.
         if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
             self.detected_time.append(obstacle_msg.detectedTime)
@@ -586,16 +597,16 @@ class Obstacle:
             self.history_heading.clear()
             self.detected_time.append(obstacle_msg.detectedTime)
 
-        if lane_info != None:
-            self.obstacle_projection(lane_info)
+        # project the obstacle to the current lane.
+        if cur_lane_info != None:
+            self.obstacle_projection(cur_lane_info)
 
     # project obstacles onto the lane
     def obstacle_projection(self, lane_info):
-
-        self.polygon = np.array([self.center[0]])
-        s_range, l_range = []
-        for i in range(len(self.polygon)):
-            result = lane_projection(lane_info.cur_lane_x, lane_info.cur_lane_y, lane_info.cur_lane_num, self.polygon[i].x, self.polygon[i].y, self.direction)
+        s_range = []
+        l_range = []
+        for i in range(len(self.cur_bounding_points)):
+            result = lane_projection(lane_info.cur_lane_x, lane_info.cur_lane_y, lane_info.cur_lane_num, self.cur_bounding_points[i][0], self.cur_bounding_points[i][1])
             # L: result[3], S: result[5]
             s_range.append(result[5])
             l_range.append(result[3])
@@ -603,12 +614,13 @@ class Obstacle:
         self.s_end = max(s_range)
         self.l_begin = min(l_range)
         self.l_end = max(l_range)
-        if self.velocity > 0:
-            self.obstacle_status = 1
-            result_center = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, self.center.x, self.center.y, self.direction)
+        if self.is_moving:
+            result_center = lane_projection(lane_info.cur_lane_x, lane_info.cur_lane_y, lane_info.cur_lane_num, self.history_center_points[-1][0], self.history_center_points[-1][1], self.history_heading[-1])
+            # direction difference : result[3]
             self.s_velocity = math.cos(result_center[4]) * self.velocity
             self.l_velocity = math.sin(result_center[4]) * self.velocity
 
+    # predict the future trajectory of the obstacle
     def obstacle_prediction(self):
         pass
 
@@ -616,45 +628,6 @@ class Obstacle:
 
 if __name__ == '__main__':
     listener()
-    vehicle_bound = np.array([global_pose_data.mapX, global_pose_data.mapY])
-
-    lane_test = []
-    var = [1, 2, 3, 4]
-    boundaryPoints = []
-    lanePoints = []
-    boundary_point_x = []
-    for i in range(len(boundaryPoints)):
-
-        for j in range(len()):
-            result = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, )
-
-
-    boundary1 =
-    boundary1X, boundary1Y, boundary2X, boundary2Y = [], [], [], []
-    for i in range(len(boundary1)):
-        boundary1X.append(boundary1[i][0])
-        boundary1Y.append(boundary1[i][1])
-    for i in range(len(boundary2)):
-        boundary2X.append(boundary2[i][0])
-        boundary2Y.append(boundary2[i][1])
-
-    midPointsList1, midPointsList2 = getBoundariesCenterPoints(boundary1, boundary2)
-    x1, y1, x2, y2 = [], [], [], []
-    for i in range(len(midPointsList1)):
-        x1.append(midPointsList1[i][0])
-        y1.append(midPointsList1[i][1])
-    for i in range(len(midPointsList2)):
-        x2.append(midPointsList2[i][0])
-        y2.append(midPointsList2[i][1])
-    centerLine = getBoundariesCenterLine(midPointsList1, midPointsList2, curX, curY, curYaw)
-    centerLineX, centerLineY = [], []
-    for i in range(len(centerLine)):
-        centerLineX.append(centerLine[i][0])
-        centerLineY.append(centerLine[i][1])
-
-
-
-
 
 
 
