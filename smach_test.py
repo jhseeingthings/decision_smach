@@ -471,7 +471,32 @@ class YieldBreak(smach.State):
         pass
 
 #########################################
-class ApproachParkingSpot(smach.State):
+class DriveAlongLane(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['enter_parking_zone', 'lane_end'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+
+class SelectParkingSpot(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['have_empty_spot', 'no_emtpy_spot'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class DriveAndStopInFront(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['finished'],
                              input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
@@ -484,7 +509,31 @@ class ApproachParkingSpot(smach.State):
         pass
 
 
-class Park(smach.State):
+class ExecutePark(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['succeeded', 'failed'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class AwaitMission(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['continue'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class MarkParkingSpot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
                              input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
@@ -496,6 +545,53 @@ class Park(smach.State):
     def execute(self, user_data):
         pass
 
+class ReturnToLane(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['succeeded'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class ReGlobalPlan(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['continue', 'need_to_turn_around'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class TurnAround(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['succeeded', 'failed'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class Reverse(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['okay_to_turn_around'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
 
 #########################################
 class ConditionJudge(smach.State):
@@ -633,12 +729,34 @@ def main():
                     smach.StateMachine.add('YIELD_BREAK', YieldBreak(), transitions={'continue': 'EXECUTE_MERGE'})
                 smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW'})
 
-                sm_scenario_park = smach.StateMachine(outcomes=['succeeded'])
+                sm_scenario_park = smach.StateMachine(outcomes=['mission_continue'])
                 with sm_scenario_park:
-                    smach.StateMachine.add('APPROACH_PARKING_SPOT', ApproachParkingSpot(),
+                    smach.StateMachine.add('DRIVE_ALONG_LANE', DriveAlongLane(),
+                                           transitions={'enter_parking_zone': 'SELECT_PARKING_SPOT',
+                                                        'lane_end': 'RE_GLOBAL_PLAN'})
+                    smach.StateMachine.add('SELECT_PARKING_SPOT', SelectParkingSpot(),
+                                           transitions={'have_empty_spot': 'DRIVE_AND_STOP_IN_FRONT',
+                                                        'no_emtpy_spot': 'MARK_PARKING_SPOT'})
+                    smach.StateMachine.add('DRIVE_AND_STOP_IN_FRONT', DriveAndStopInFront(),
                                            transitions={'finished': 'EXECUTE_PARK'})
-                    smach.StateMachine.add('EXECUTE_PARK', Park(), transitions={'succeeded': 'succeeded'})
-                smach.StateMachine.add('PARK', sm_scenario_park, transitions={'succeeded': 'STARTUP'})
+                    smach.StateMachine.add('EXECUTE_PARK', ExecutePark(),
+                                           transitions={'succeeded': 'AWAIT_MISSION',
+                                                        'failed': 'MARK_PARKING_SPOT'})
+                    smach.StateMachine.add('AWAIT_MISSION', AwaitMission(),
+                                           transitions={'continue': 'mission_continue'})
+                    smach.StateMachine.add('MARK_PARKING_SPOT', MarkParkingSpot(),
+                                           transitions={'succeeded': 'RETURN_TO_LANE'})
+                    smach.StateMachine.add('RETURN_TO_LANE', ReturnToLane(),
+                                           transitions={'succeeded': 'DRIVE_ALONG_LANE'})
+                    smach.StateMachine.add('RE_GLOBAL_PLAN', ReGlobalPlan(),
+                                           transitions={'continue': 'DRIVE_ALONG_LANE',
+                                                        'need_to_turn_around': 'TURN_AROUND'})
+                    smach.StateMachine.add('TURN_AROUND', TurnAround(),
+                                           transitions={'succeeded': 'DRIVE_ALONG_LANE',
+                                                        'failed': 'REVERSE'})
+                    smach.StateMachine.add('REVERSE', Reverse(),
+                                           transitions={'okay_to_turn_around': 'TURN_AROUND'})
+                smach.StateMachine.add('PARK', sm_scenario_park, transitions={'mission_continue': 'STARTUP'})
 
             smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario)
 
