@@ -633,6 +633,17 @@ class EmergencyBrake(smach.State):
 
         pass
 
+class Await(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['continue'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data']
+                             )
+
+    def execute(self, user_data):
+        pass
 
 def re_global_planning():
     rospy.init_node('greetings_client')
@@ -763,15 +774,15 @@ def main():
             sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'])
             with sm_re_global_Planning:
                 smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'satisfied': 'STOP'})
-                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'JUDGE'})
+                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
             smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
-            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
-            with sm_emergency_brake:
-                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'STOP'})
-                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'EMERGENCY_STOP_STANDBY'})
-                smach.StateMachine.add('EMERGENCY_STOP_STANDBY', StopImmediately(), transitions={'succeeded': 'JUDGE'})
-            smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
+            # sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
+            # with sm_emergency_brake:
+            #     smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'STOP'})
+            #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'AWAIT'})
+            #     smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
+            # smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
 
         smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions = {'outcome5': 'FINITE_STATE_MACHINE'})
 
