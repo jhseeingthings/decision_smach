@@ -133,10 +133,10 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.get boundaries centerline" />
       <item itemvalue="Python.get boundaries centerline (1)" />
-      <item itemvalue="Python.path" />
+      <item itemvalue="Python.get boundaries centerline" />
       <item itemvalue="Python.get_boundaries_centerline" />
+      <item itemvalue="Python.path" />
     </list>
     <recent_temporary>
       <list>

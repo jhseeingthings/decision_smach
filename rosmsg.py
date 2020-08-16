@@ -348,9 +348,9 @@ class LaneInfoUpdate:
             self.after_length.append(result[6])
 
         # choose current lane id and index
-        DIR_THRESHOLD = 120.0 / 180.0 * 3.14159265
+        # DIR_THRESHOLD = 120.0 / 180.0 * 3.14159265
         OFFSET_THRESHOLD = 1.0
-        min_offset = 50
+        min_offset = 2.0
         cur_lane_index = -1
         count = 0
         preferred_index_set = []
@@ -358,41 +358,74 @@ class LaneInfoUpdate:
 
 
         # 选择当前车道(找全局规划)
+        # 先找距离处于较小范围内，优先级较高的第一条车道
+        # 如果找不到，找距离最小的一条车道
         for i in range(len(self.lanes)):
             abs_offset = abs(self.offset[i])
-            abs_dir_diff = abs(self.dir_diff[i])
             # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
             if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                    and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 2 \
-                    and self.after_length[i] > 5:
+                    and self.lanes[i].preferred == 2 \
+                    and self.after_length[i] > 2:
                 count += 1
                 preferred_index_set.append(i)
                 preferred_id_set.append(self.lanes[i].id)
         if count == 0:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
-                abs_dir_diff = abs(self.dir_diff[i])
                 # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
                 if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                        and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 1 \
-                        and self.after_length[i] > 5:
+                        and self.lanes[i].preferred == 1 \
+                        and self.after_length[i] > 2:
                     count += 1
                     preferred_index_set.append(i)
                     preferred_id_set.append(self.lanes[i].id)
         if count == 0:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
-                abs_dir_diff = abs(self.dir_diff[i])
                 #
                 if self.lanes[i].relation == 1 and abs_offset < min_offset \
-                        and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred > 0 \
-                        and self.after_length[i] > 5:
+                        and self.after_length[i] > 2:
                     count = 1
                     min_offset = abs_offset
                     preferred_index_set[0] = i  # 只有一条
                     preferred_id_set[0] = self.lanes[i].id
 
+        # for i in range(len(self.lanes)):
+        #     abs_offset = abs(self.offset[i])
+        #     abs_dir_diff = abs(self.dir_diff[i])
+        #     # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
+        #     if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
+        #             and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 2 \
+        #             and self.after_length[i] > 5:
+        #         count += 1
+        #         preferred_index_set.append(i)
+        #         preferred_id_set.append(self.lanes[i].id)
+        # if count == 0:
+        #     for i in range(len(self.lanes)):
+        #         abs_offset = abs(self.offset[i])
+        #         abs_dir_diff = abs(self.dir_diff[i])
+        #         # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
+        #         if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
+        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 1 \
+        #                 and self.after_length[i] > 5:
+        #             count += 1
+        #             preferred_index_set.append(i)
+        #             preferred_id_set.append(self.lanes[i].id)
+        # if count == 0:
+        #     for i in range(len(self.lanes)):
+        #         abs_offset = abs(self.offset[i])
+        #         abs_dir_diff = abs(self.dir_diff[i])
+        #         #
+        #         if self.lanes[i].relation == 1 and abs_offset < min_offset \
+        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred > 0 \
+        #                 and self.after_length[i] > 5:
+        #             count = 1
+        #             min_offset = abs_offset
+        #             preferred_index_set[0] = i  # 只有一条
+        #             preferred_id_set[0] = self.lanes[i].id
+
         # 对于多条符合要求的 lanes ，选一条(id 最小的一条，来保证连续性）
+
         if count != 0:
             min_id = 10000
             min_id_index = -1
@@ -401,125 +434,127 @@ class LaneInfoUpdate:
                     min_id = preferred_id_set[i]
                     min_id_index = preferred_index_set[i]
             cur_lane_index = min_id_index
-        if cur_lane_index == -1:
-            cur_lane_index = 0
 
-        temp_lead_to_id = -1
-        lead_to_index = 0
-        for i in range(len(self.lanes[cur_lane_index].leadToIds)):
-            for j in range(len(self.lanes)):
-                if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                        and self.lanes[j].preferred == 2:
-                    temp_lead_to_id = self.lanes[j].id
-                    lead_to_index = j
-                    break
-            if temp_lead_to_id != -1:
-                break
-
-        if temp_lead_to_id == -1:
+        if cur_lane_index != -1:
+            temp_lead_to_id = -1
+            lead_to_index = 0
             for i in range(len(self.lanes[cur_lane_index].leadToIds)):
                 for j in range(len(self.lanes)):
                     if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                            and self.lanes[j].preferred == 1:
+                            and self.lanes[j].preferred == 2:
                         temp_lead_to_id = self.lanes[j].id
                         lead_to_index = j
                         break
                 if temp_lead_to_id != -1:
                     break
 
-        # generate and merge current lane
-        for i in range(len(self.lanes[cur_lane_index].points)):
-            self.cur_lane_x.append(self.lanes[cur_lane_index].points[i].x)
-            self.cur_lane_y.append(self.lanes[cur_lane_index].points[i].y)
-        # merge !!!
-        if self.after_length[cur_lane_index] < 10 and temp_lead_to_id != -1:
-            for j in range(len(self.lanes[lead_to_index].points)):
-                self.cur_lane_x.append(self.lanes[lead_to_index].points[j].x)
-                self.cur_lane_y.append(self.lanes[lead_to_index].points[j].y)
+            if temp_lead_to_id == -1:
+                for i in range(len(self.lanes[cur_lane_index].leadToIds)):
+                    for j in range(len(self.lanes)):
+                        if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
+                                and self.lanes[j].preferred == 1:
+                            temp_lead_to_id = self.lanes[j].id
+                            lead_to_index = j
+                            break
+                    if temp_lead_to_id != -1:
+                        break
 
-        self.cur_lane_num = len(self.cur_lane_x)
-        self.cur_lane_id = self.lanes[cur_lane_index].id
-        self.cur_lane_width = self.lanes[cur_lane_index].width
-        # 需要查到如果没有左右车道时 id 是什么
-        left_lane_index = -1
-        right_lane_index = -1
-        for i in range(len(self.lanes)):
-            if self.lanes[i].id == self.lanes[cur_lane_index].leftLaneId:
-                left_lane_index = i
-            elif self.lanes[i].id == self.lanes[cur_lane_index].rightLaneId:
-                right_lane_index = i
-        if left_lane_index != -1:
-            self.left_lane_id = self.lanes[left_lane_index].id
-            self.left_lane_width = self.lanes[left_lane_index].width
-        else:
-            self.left_lane_id = -1
-        if right_lane_index != -1:
-            self.right_lane_id = self.lanes[right_lane_index].id
-            self.right_lane_width = self.lanes[right_lane_index].width
-        else:
-            self.right_lane_id = -1
+            # generate and merge current lane
+            for i in range(len(self.lanes[cur_lane_index].points)):
+                self.cur_lane_x.append(self.lanes[cur_lane_index].points[i].x)
+                self.cur_lane_y.append(self.lanes[cur_lane_index].points[i].y)
+            # merge !!!
+            if self.after_length[cur_lane_index] < 10 and temp_lead_to_id != -1:
+                for j in range(len(self.lanes[lead_to_index].points)):
+                    self.cur_lane_x.append(self.lanes[lead_to_index].points[j].x)
+                    self.cur_lane_y.append(self.lanes[lead_to_index].points[j].y)
 
-        if self.lanes[cur_lane_index].stopType != 0:
-            stop_line_x = self.lanes[cur_lane_index].nextStop.x
-            stop_line_y = self.lanes[cur_lane_index].nextStop.y
-            self.dist_to_next_stop = math.sqrt(math.pow(stop_line_x - global_pose_data.mapX, 2) + pow(stop_line_y - global_pose_data.mapY, 2))
-            self.next_stop_type = self.lanes[cur_lane_index].stopType
+            self.cur_lane_num = len(self.cur_lane_x)
+            self.cur_lane_id = self.lanes[cur_lane_index].id
+            self.cur_lane_width = self.lanes[cur_lane_index].width
+            # 需要查到如果没有左右车道时 id 是什么
+            left_lane_index = -1
+            right_lane_index = -1
+            for i in range(len(self.lanes)):
+                if self.lanes[i].id == self.lanes[cur_lane_index].leftLaneId:
+                    left_lane_index = i
+                elif self.lanes[i].id == self.lanes[cur_lane_index].rightLaneId:
+                    right_lane_index = i
+            if left_lane_index != -1:
+                self.left_lane_id = self.lanes[left_lane_index].id
+                self.left_lane_width = self.lanes[left_lane_index].width
+            else:
+                self.left_lane_id = -1
+            if right_lane_index != -1:
+                self.right_lane_id = self.lanes[right_lane_index].id
+                self.right_lane_width = self.lanes[right_lane_index].width
+            else:
+                self.right_lane_id = -1
 
-        elif self.lanes[lead_to_index].stopType != 0 and temp_lead_to_id != 0:
-            stop_line_x = self.lanes[lead_to_index].nextStop.x
-            stop_line_y = self.lanes[lead_to_index].nextStop.y
-            dist_section_1 = self.after_length[cur_lane_index]
-            dist_section_2 = math.sqrt(math.pow(stop_line_x - self.lanes[cur_lane_index].points[-1].x, 2) + math.pow(stop_line_y - self.lanes[cur_lane_index].points[-1].y, 2))
-            self.dist_to_next_stop = dist_section_1 + dist_section_2
-            self.next_stop_type = self.lanes[lead_to_index].stopType
+            if self.lanes[cur_lane_index].stopType != 0:
+                stop_line_x = self.lanes[cur_lane_index].nextStop.x
+                stop_line_y = self.lanes[cur_lane_index].nextStop.y
+                self.dist_to_next_stop = math.sqrt(math.pow(stop_line_x - global_pose_data.mapX, 2) + pow(stop_line_y - global_pose_data.mapY, 2))
+                self.next_stop_type = self.lanes[cur_lane_index].stopType
 
-        self.dist_to_next_road = self.after_length[cur_lane_index]
-        self.cur_turn_type = self.lanes[cur_lane_index].turn
-        if temp_lead_to_id != 0:
-            self.next_turn_type = self.lanes[lead_to_index].turn
-        self.can_change_left = self.lanes[cur_lane_index].canChangeLeft
-        self.can_change_right = self.lanes[cur_lane_index].canChangeRight
-        self.speed_upper_limit = self.lanes[cur_lane_index].speedUpperLimit
-        self.speed_lower_limit = self.lanes[cur_lane_index].speedLowerLimit
+            elif self.lanes[lead_to_index].stopType != 0 and temp_lead_to_id != 0:
+                stop_line_x = self.lanes[lead_to_index].nextStop.x
+                stop_line_y = self.lanes[lead_to_index].nextStop.y
+                dist_section_1 = self.after_length[cur_lane_index]
+                dist_section_2 = math.sqrt(math.pow(stop_line_x - self.lanes[cur_lane_index].points[-1].x, 2) + math.pow(stop_line_y - self.lanes[cur_lane_index].points[-1].y, 2))
+                self.dist_to_next_stop = dist_section_1 + dist_section_2
+                self.next_stop_type = self.lanes[lead_to_index].stopType
+
+            self.dist_to_next_road = self.after_length[cur_lane_index]
+            self.cur_turn_type = self.lanes[cur_lane_index].turn
+            if temp_lead_to_id != 0:
+                self.next_turn_type = self.lanes[lead_to_index].turn
+            self.can_change_left = self.lanes[cur_lane_index].canChangeLeft
+            self.can_change_right = self.lanes[cur_lane_index].canChangeRight
+            self.speed_upper_limit = self.lanes[cur_lane_index].speedUpperLimit
+            self.speed_lower_limit = self.lanes[cur_lane_index].speedLowerLimit
 
 
-        self.cur_preferred = self.lanes[cur_lane_index].preferred
+            self.cur_preferred = self.lanes[cur_lane_index].preferred
 
-        temp_index = cur_lane_index
-        for i in range(10):
-            temp_left_id = self.lanes[temp_index].leftLaneId
-            for j in range(len(self.lanes)):
-                if self.lanes[j].id == temp_left_id:
-                    self.left_preferred.append(self.lanes[j].preferred)
-                    temp_index = j
+            temp_index = cur_lane_index
+            for i in range(10):
+                temp_left_id = self.lanes[temp_index].leftLaneId
+                for j in range(len(self.lanes)):
+                    if self.lanes[j].id == temp_left_id:
+                        self.left_preferred.append(self.lanes[j].preferred)
+                        temp_index = j
+                        break
+                if j == len(self.lanes):
                     break
-            if j == len(self.lanes):
-                break
 
-        temp_index = cur_lane_index
-        for i in range(10):
-            temp_right_id = self.lanes[temp_index].rightLaneId
-            for j in range(len(self.lanes)):
-                if self.lanes[j].id == temp_right_id:
-                    self.right_preferred.append(self.lanes[j].preferred)
-                    temp_index = j
+            temp_index = cur_lane_index
+            for i in range(10):
+                temp_right_id = self.lanes[temp_index].rightLaneId
+                for j in range(len(self.lanes)):
+                    if self.lanes[j].id == temp_right_id:
+                        self.right_preferred.append(self.lanes[j].preferred)
+                        temp_index = j
+                        break
+                if j == len(self.lanes):
                     break
-            if j == len(self.lanes):
-                break
 
-        self.lead_to_preferred = []
+            self.lead_to_preferred = []
 
-        for i in range(len(self.lanes[cur_lane_index].leadToIds)):
-            self.lead_to_ids.append(self.lanes[cur_lane_index].leadToIds[i])
-            for j in range(len(self.lanes)):
-                if self.lanes[cur_lane_index].leadToIds[i] == self.lanes[j].id:
-                    self.lead_to_preferred.append(self.lanes[j].preferred)
+            for i in range(len(self.lanes[cur_lane_index].leadToIds)):
+                self.lead_to_ids.append(self.lanes[cur_lane_index].leadToIds[i])
+                for j in range(len(self.lanes)):
+                    if self.lanes[cur_lane_index].leadToIds[i] == self.lanes[j].id:
+                        self.lead_to_preferred.append(self.lanes[j].preferred)
 
 
-        cur_lane_list.append(self.cur_lane_id)
+            if(self.cur_lane_id != cur_lane_list[-1]):
+                cur_lane_list.append(self.cur_lane_id)
 
-        vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
+            vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
 
+        else:
+            self.cur_lane_id = -1
 
 class Obstacle:
     def __init__(self, obstacle_msg, cur_lane_info):
