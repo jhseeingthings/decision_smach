@@ -910,17 +910,17 @@ def main():
 
             smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario)
 
-            sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'],
-                                                       input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
-                                                                   'signs_data', 'lights_data', 'pose_data'],
-                                                       output_keys=['lane_info_processed', 'lane_list',
-                                                                    'obstacles_list', 'signs_data',
-                                                                    'lights_data', 'pose_data']
-                                                       )
-            with sm_re_global_Planning:
-                smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'satisfied': 'STOP'})
-                smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
-            smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
+            # sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'],
+            #                                            input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+            #                                                        'signs_data', 'lights_data', 'pose_data'],
+            #                                            output_keys=['lane_info_processed', 'lane_list',
+            #                                                         'obstacles_list', 'signs_data',
+            #                                                         'lights_data', 'pose_data']
+            #                                            )
+            # with sm_re_global_Planning:
+            #     smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'satisfied': 'STOP'})
+            #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
+            # smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
             # sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
             # with sm_emergency_brake:
