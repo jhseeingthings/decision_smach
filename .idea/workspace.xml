@@ -20,12 +20,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="af46e9b5-7fc2-490e-ad37-6ba191aa4064" name="Default Changelist" comment="Merge branch 'master' of https://github.com/jhseeingthings/DecisionSmach">
-      <change afterPath="$PROJECT_DIR$/.idea/DecisionSmach.iml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/user_data.py" beforeDir="false" afterPath="$PROJECT_DIR$/user_data.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -39,53 +34,6 @@
       </list>
     </option>
   </component>
-  <component name="FindInProjectRecents">
-    <findStrings>
-      <find>sTotal</find>
-      <find>global_pose_msg</find>
-      <find>dirDiff</find>
-      <find>find_current_lane</find>
-      <find>cur_yaw</find>
-      <find>global_pose_data</find>
-      <find>obstacles_data</find>
-      <find>obstacles_msg</find>
-      <find>min_distance</find>
-      <find>next_stop_y</find>
-      <find>road_msg</find>
-      <find>preferred</find>
-      <find>road_data</find>
-      <find>points_x</find>
-      <find>turn_type</find>
-      <find>cur_lane_index</find>
-      <find>ObstacleUpdate</find>
-      <find>getBoundariesCenterPoints</find>
-    </findStrings>
-    <replaceStrings>
-      <replace>projection_x</replace>
-      <replace>projection_y</replace>
-      <replace>min_distance</replace>
-      <replace>map_y</replace>
-      <replace>map_x</replace>
-      <replace>map_num</replace>
-      <replace>cur_x</replace>
-      <replace>cur_y</replace>
-      <replace>cur_yaw</replace>
-      <replace>vec_section</replace>
-      <replace>vec_point</replace>
-      <replace>section_length</replace>
-      <replace>section_length_squared</replace>
-      <replace>temp_projection_x</replace>
-      <replace>temp_projection_y</replace>
-      <replace>vec_offset</replace>
-      <replace>section_distance</replace>
-      <replace>vec_map_dir</replace>
-      <replace>vec_yaw_dir</replace>
-      <replace>dir_diff</replace>
-      <replace>road_data</replace>
-      <replace>obstacles_data</replace>
-      <replace>cur_turn_type</replace>
-    </replaceStrings>
-  </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
@@ -96,7 +44,7 @@
   </component>
   <component name="PropertiesComponent">
     <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
-    <property name="last_opened_file_path" value="$PROJECT_DIR$" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../smach_test" />
     <property name="settings.editor.selected.configurable" value="editor.preferences.fonts.default" />
   </component>
   <component name="RunManager" selected="Python.get boundaries centerline (1)">
@@ -252,7 +200,28 @@
       <option name="project" value="LOCAL" />
       <updated>1595132764178</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="Merge branch 'master' of https://github.com/jhseeingthings/DecisionSmach">
+      <created>1595260351175</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1595260351175</updated>
+    </task>
+    <task id="LOCAL-00008" summary="Merge branch 'master' of https://github.com/jhseeingthings/DecisionSmach">
+      <created>1597327360910</created>
+      <option name="number" value="00008" />
+      <option name="presentableId" value="LOCAL-00008" />
+      <option name="project" value="LOCAL" />
+      <updated>1597327360910</updated>
+    </task>
+    <task id="LOCAL-00009" summary="a">
+      <created>1597499291316</created>
+      <option name="number" value="00009" />
+      <option name="presentableId" value="LOCAL-00009" />
+      <option name="project" value="LOCAL" />
+      <updated>1597499291316</updated>
+    </task>
+    <option name="localTasksCounter" value="10" />
     <servers />
   </component>
   <component name="TodoView">
@@ -278,21 +247,31 @@
   <component name="VcsManagerConfiguration">
     <MESSAGE value="delete unstructured scenario" />
     <MESSAGE value="new version" />
-    <option name="LAST_COMMIT_MESSAGE" value="new version" />
+    <MESSAGE value="Merge branch 'master' of https://github.com/jhseeingthings/DecisionSmach" />
+    <MESSAGE value="a" />
+    <option name="LAST_COMMIT_MESSAGE" value="a" />
   </component>
   <component name="WindowStateProjectService">
+    <state x="776" y="370" width="424" height="484" key="FileChooserDialogImpl" timestamp="1597477776495">
+      <screen x="67" y="27" width="1853" height="1173" />
+    </state>
+    <state x="776" y="370" width="424" height="484" key="FileChooserDialogImpl/67.27.1853.1173@67.27.1853.1173" timestamp="1597477776495" />
     <state x="45" y="332" key="SettingsEditor" timestamp="1595252303122">
       <screen x="67" y="27" width="1853" height="1173" />
     </state>
     <state x="45" y="332" key="SettingsEditor/67.27.1853.1173@67.27.1853.1173" timestamp="1595252303122" />
+    <state x="764" y="527" width="448" height="170" key="com.intellij.openapi.vcs.update.UpdateOrStatusOptionsDialogupdate-v2" timestamp="1597327341269">
+      <screen x="67" y="27" width="1853" height="1173" />
+    </state>
+    <state x="764" y="527" width="448" height="170" key="com.intellij.openapi.vcs.update.UpdateOrStatusOptionsDialogupdate-v2/67.27.1853.1173@67.27.1853.1173" timestamp="1597327341269" />
     <state x="795" y="27" width="1125" height="1130" key="dock-window-1" timestamp="1595239106075">
       <screen x="67" y="27" width="1853" height="1173" />
     </state>
     <state x="795" y="27" width="1125" height="1130" key="dock-window-1/67.27.1853.1173@67.27.1853.1173" timestamp="1595239106075" />
-    <state x="393" y="213" width="1200" height="800" key="dock-window-2" timestamp="1595232292737">
+    <state x="767" y="27" width="1153" height="1130" key="dock-window-2" timestamp="1597495630138">
       <screen x="67" y="27" width="1853" height="1173" />
     </state>
-    <state x="393" y="213" width="1200" height="800" key="dock-window-2/67.27.1853.1173@67.27.1853.1173" timestamp="1595232292737" />
+    <state x="767" y="27" width="1153" height="1130" key="dock-window-2/67.27.1853.1173@67.27.1853.1173" timestamp="1597495630138" />
     <state x="393" y="213" width="1200" height="800" key="dock-window-3" timestamp="1595232292737">
       <screen x="67" y="27" width="1853" height="1173" />
     </state>
