@@ -267,7 +267,12 @@ def obstacles_prediction():
 def parking_spot_choose_decider():
     pass
 
-def lane_choose_decider():
+def target_lane_choose_decider(lane_info_processed, lane_list, pose_data):
+    # 当前没有目标车道或者当前车道优先级不为正
+    if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_preferred == 0
+
+
+
     pass
 
 def traffic_rules_decider():
@@ -281,6 +286,8 @@ def path_priority_decider():
 
 def re_global_planning_decider():
     pass
+
+
 
 #########################################
 # STARTUP
@@ -305,7 +312,7 @@ class StartupCheck(smach.State):
             if vehicle_status == 0:
                 continue
             # check the obstacles in the conflicting ares.
-
+            target_lane_choose_decider(user_data.lane_info_processed, user_data.lane_list, user_data.pose_data)
             # time_action =
             # time_required =
 
