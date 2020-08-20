@@ -140,10 +140,10 @@ class LaneInfoUpdate:
         self.speed_upper_limit = 0
         self.speed_lower_limit = 0
         self.lead_to_ids = []
-        self.lead_to_preferred = []
-        self.cur_preferred = 0
-        self.left_preferred = []
-        self.right_preferred = []
+        self.lead_to_priority = []
+        self.cur_priority = 0
+        self.left_priority = []
+        self.right_priority = []
 
         self.lane_of_interest = []
 

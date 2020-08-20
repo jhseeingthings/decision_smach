@@ -324,10 +324,10 @@ class LaneInfoUpdate:
         self.speed_upper_limit = 0
         self.speed_lower_limit = 0
         self.lead_to_ids = []
-        self.lead_to_preferred = []
-        self.cur_preferred = 0
-        self.left_preferred = []
-        self.right_preferred = []
+        self.lead_to_priority = []
+        self.cur_priority = 0
+        self.left_priority = []
+        self.right_priority = []
 
         self.lane_of_interest = []
 
@@ -353,8 +353,8 @@ class LaneInfoUpdate:
         min_offset = 2.0
         cur_lane_index = -1
         count = 0
-        preferred_index_set = []
-        preferred_id_set = []
+        priority_index_set = []
+        priority_id_set = []
 
 
         # 选择当前车道(找全局规划)
@@ -364,21 +364,21 @@ class LaneInfoUpdate:
             abs_offset = abs(self.offset[i])
             # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
             if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                    and self.lanes[i].preferred == 2 \
+                    and self.lanes[i].priority == 2 \
                     and self.after_length[i] > 2:
                 count += 1
-                preferred_index_set.append(i)
-                preferred_id_set.append(self.lanes[i].id)
+                priority_index_set.append(i)
+                priority_id_set.append(self.lanes[i].id)
         if count == 0:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
                 # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
                 if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                        and self.lanes[i].preferred == 1 \
+                        and self.lanes[i].priority == 1 \
                         and self.after_length[i] > 2:
                     count += 1
-                    preferred_index_set.append(i)
-                    preferred_id_set.append(self.lanes[i].id)
+                    priority_index_set.append(i)
+                    priority_id_set.append(self.lanes[i].id)
         if count == 0:
             for i in range(len(self.lanes)):
                 abs_offset = abs(self.offset[i])
@@ -387,42 +387,42 @@ class LaneInfoUpdate:
                         and self.after_length[i] > 2:
                     count = 1
                     min_offset = abs_offset
-                    preferred_index_set[0] = i  # 只有一条
-                    preferred_id_set[0] = self.lanes[i].id
+                    priority_index_set[0] = i  # 只有一条
+                    priority_id_set[0] = self.lanes[i].id
 
         # for i in range(len(self.lanes)):
         #     abs_offset = abs(self.offset[i])
         #     abs_dir_diff = abs(self.dir_diff[i])
         #     # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
         #     if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-        #             and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 2 \
+        #             and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority == 2 \
         #             and self.after_length[i] > 5:
         #         count += 1
-        #         preferred_index_set.append(i)
-        #         preferred_id_set.append(self.lanes[i].id)
+        #         priority_index_set.append(i)
+        #         priority_id_set.append(self.lanes[i].id)
         # if count == 0:
         #     for i in range(len(self.lanes)):
         #         abs_offset = abs(self.offset[i])
         #         abs_dir_diff = abs(self.dir_diff[i])
         #         # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
         #         if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred == 1 \
+        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority == 1 \
         #                 and self.after_length[i] > 5:
         #             count += 1
-        #             preferred_index_set.append(i)
-        #             preferred_id_set.append(self.lanes[i].id)
+        #             priority_index_set.append(i)
+        #             priority_id_set.append(self.lanes[i].id)
         # if count == 0:
         #     for i in range(len(self.lanes)):
         #         abs_offset = abs(self.offset[i])
         #         abs_dir_diff = abs(self.dir_diff[i])
         #         #
         #         if self.lanes[i].relation == 1 and abs_offset < min_offset \
-        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].preferred > 0 \
+        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority > 0 \
         #                 and self.after_length[i] > 5:
         #             count = 1
         #             min_offset = abs_offset
-        #             preferred_index_set[0] = i  # 只有一条
-        #             preferred_id_set[0] = self.lanes[i].id
+        #             priority_index_set[0] = i  # 只有一条
+        #             priority_id_set[0] = self.lanes[i].id
 
         # 对于多条符合要求的 lanes ，选一条(id 最小的一条，来保证连续性）
 
@@ -430,9 +430,9 @@ class LaneInfoUpdate:
             min_id = 10000
             min_id_index = -1
             for i in range(count):
-                if preferred_id_set[i] < min_id:
-                    min_id = preferred_id_set[i]
-                    min_id_index = preferred_index_set[i]
+                if priority_id_set[i] < min_id:
+                    min_id = priority_id_set[i]
+                    min_id_index = priority_index_set[i]
             cur_lane_index = min_id_index
 
         if cur_lane_index != -1:
@@ -441,7 +441,7 @@ class LaneInfoUpdate:
             for i in range(len(self.lanes[cur_lane_index].leadToIds)):
                 for j in range(len(self.lanes)):
                     if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                            and self.lanes[j].preferred == 2:
+                            and self.lanes[j].priority == 2:
                         temp_lead_to_id = self.lanes[j].id
                         lead_to_index = j
                         break
@@ -452,7 +452,7 @@ class LaneInfoUpdate:
                 for i in range(len(self.lanes[cur_lane_index].leadToIds)):
                     for j in range(len(self.lanes)):
                         if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                                and self.lanes[j].preferred == 1:
+                                and self.lanes[j].priority == 1:
                             temp_lead_to_id = self.lanes[j].id
                             lead_to_index = j
                             break
@@ -515,14 +515,14 @@ class LaneInfoUpdate:
             self.speed_lower_limit = self.lanes[cur_lane_index].speedLowerLimit
 
 
-            self.cur_preferred = self.lanes[cur_lane_index].preferred
+            self.cur_priority = self.lanes[cur_lane_index].priority
 
             temp_index = cur_lane_index
             for i in range(10):
                 temp_left_id = self.lanes[temp_index].leftLaneId
                 for j in range(len(self.lanes)):
                     if self.lanes[j].id == temp_left_id:
-                        self.left_preferred.append(self.lanes[j].preferred)
+                        self.left_priority.append(self.lanes[j].priority)
                         temp_index = j
                         break
                 if j == len(self.lanes):
@@ -533,19 +533,19 @@ class LaneInfoUpdate:
                 temp_right_id = self.lanes[temp_index].rightLaneId
                 for j in range(len(self.lanes)):
                     if self.lanes[j].id == temp_right_id:
-                        self.right_preferred.append(self.lanes[j].preferred)
+                        self.right_priority.append(self.lanes[j].priority)
                         temp_index = j
                         break
                 if j == len(self.lanes):
                     break
 
-            self.lead_to_preferred = []
+            self.lead_to_priority = []
 
             for i in range(len(self.lanes[cur_lane_index].leadToIds)):
                 self.lead_to_ids.append(self.lanes[cur_lane_index].leadToIds[i])
                 for j in range(len(self.lanes)):
                     if self.lanes[cur_lane_index].leadToIds[i] == self.lanes[j].id:
-                        self.lead_to_preferred.append(self.lanes[j].preferred)
+                        self.lead_to_priority.append(self.lanes[j].priority)
 
 
             if(self.cur_lane_id != cur_lane_list[-1]):

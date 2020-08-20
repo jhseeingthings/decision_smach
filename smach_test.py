@@ -5,12 +5,112 @@ import rospy
 import smach
 import smach_ros
 from smach_ros import MonitorState, IntrospectionServer
-
+import numpy as np
 import threading
 from multiprocessing.pool import ThreadPool
 # import all the msg and srv files
 
 # velocity defined by m/s
+
+MIN_TURNING_RADIUS = 4.5
+VEHICLE_WIDTH = 1.86
+VEHICLE_LENGTH = 5
+
+def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw = 0, type = 0):
+    """
+    project the point onto the current lane.
+    :param map_x: a set of lane points (x coordination)
+    :param map_y: a set of lane points (y coordination)
+    :param map_num:
+    :param cur_x: point x coordination
+    :param cur_y: point y coordination
+    :param cur_yaw: default value is 0, for mass points projection.
+    :param type:
+    :return:
+        projection_x,
+        projection_y,
+        index, the projection point is in [index, index + 1]
+        lateral_distance, lateral projection distance, positive on the left
+        dir_diff_signed,
+        before_length, longitudinal projection distance
+        after_length
+    """
+    projection_x = 0
+    projection_y = 0
+    index = -1
+    min_distance = 100000.0
+    s_total = 0
+    before_length = 0
+    after_length = 0
+    for i in range(map_num - 1):
+        # a vector of one section in the way
+        vec_section = np.array([map_x[i + 1] - map_x[i], map_y[i + 1] - map_y[i]])
+        # a vector pointing from the start point of the section to the query point
+        vec_point = np.array([cur_x - map_x[i], cur_y - map_y[i]])
+        # calculate the projected point on the section as a 0~1 value with respect to the section length
+        section_length = np.linalg.norm(vec_section)
+        section_length_squared = section_length * section_length
+        k = np.dot(vec_section, vec_point) / section_length_squared
+
+        # if the projected point it outside the section, project it to the ends.
+        if k >= 1.0:
+            temp_projection_x = map_x[i + 1]
+            temp_projection_y = map_y[i + 1]
+        elif k <= 0.0:
+            temp_projection_x = map_x[i]
+            temp_projection_y = map_y[i]
+        # else, project it perpendicularly.
+        else:
+            temp_projection_x = map_x[i] + k * vec_section[0]
+            temp_projection_y = map_y[i] + k * vec_section[1]
+
+        vec_offset = np.array([temp_projection_x - cur_x, temp_projection_y - cur_y])
+        section_distance = np.linalg.norm(vec_offset)
+        # record the minimum distance
+        if section_distance < min_distance:
+            min_distance = section_distance
+            projection_x = temp_projection_x
+            projection_y = temp_projection_y
+            index = i
+
+    # offset (lateral distance) with direction
+    vec_section = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+    vec_point = np.array([cur_x - map_x[index], cur_y - map_y[index]])
+    dir_temp = vec_section[1] * vec_point[0] - vec_section[0] * vec_point[1]
+    if dir_temp < 0.0:
+        dir_flag = -1.0
+    elif dir_temp > 0.0:
+        dir_flag = 1.0
+    else:
+        dir_flag = 0.0
+    lateral_distance = dir_flag * min_distance
+
+    # signed direction difference
+    if cur_yaw == 0:
+        dir_diff_signed = 0
+    else:
+        vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+        vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
+        dir_diff = math.acos(np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
+        dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
+        if dir_temp < 0.0:
+            dir_flag = -1.0
+        elif dir_temp > 0.0:
+            dir_flag = 1.0
+        else:
+            dir_flag = 0.0
+        dir_diff_signed = dir_flag * dir_diff
+
+    for j in range(0, index):
+        before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    for j in range(index + 1, map_num - 1):
+        after_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    before_length += math.sqrt(math.pow(projection_x - map_x[index], 2) + math.pow(projection_y - map_y[index], 2))
+    after_length += math.sqrt(math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
+
+
+    return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
+
 
 
 '''
@@ -267,13 +367,91 @@ def obstacles_prediction():
 def parking_spot_choose_decider():
     pass
 
-def target_lane_choose_decider(lane_info_processed, lane_list, pose_data):
-    # 当前没有目标车道或者当前车道优先级不为正
-    if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_preferred == 0
+
+def available_lanes_selector(lane_list, pose_data, obstacles_list):
+    """
+
+    :return: a set of available lanes
+    """
+    available_lanes = {}
+    for lane_index in lane_list.keys():
+        temp_lane = lane_list[lane_index]
+        if temp_lane.priority <= 0:
+            continue
+        points_x, points_y = [], []
+        for j in range(len(temp_lane.points)):
+            points_x.append(temp_lane.points[j].x)
+            points_y.append(temp_lane.points[j].y)
+        points_num = len(points_x)
+
+        #计算自车所处的位置，选择自车前方的静态障碍物来考虑。
+        vehicle_result = lane_projection(points_x, points_y, points_num,
+                                             pose_data.mapX, pose_data.mapY)
+        lon_distance_interest = vehicle_result[5] - MIN_TURNING_RADIUS
+
+        lane_scale = np.arange(-temp_lane.width/2, temp_lane.width/2, 0.1)
+        lane_occupancy = np.zeros(len(lane_scale))
+
+        for obstacle_index in obstacles_list.keys():
+            temp_obstacle = obstacles_list[obstacle_index]
+            if temp_obstacle.is_moving == 0:
+                lateral_range = []
+                for point_index in temp_obstacle.cur_bounding_points:
+                    result = lane_projection(points_x, points_y, points_num,
+                                             temp_obstacle.cur_bounding_points[point_index][0],
+                                             temp_obstacle.cur_bounding_points[point_index][1])
+                    # longitudinal condition
+                    if result[5] > lon_distance_interest:
+                        # lateral condition
+                        if abs(result[3]) < temp_lane.width / 2:
+                            lateral_range.append(result[3])
+                lateral_min = min(lateral_range)
+                lateral_max = max(lateral_range)
+                for i in range(len(lane_scale)):
+                    if lane_scale[i] > lateral_min and lane_scale[i] < lateral_max:
+                        lane_occupancy[i] = 1
+        max_zeros_length = 0
+        temp_length = 0
+        for i in range(len(lane_occupancy)):
+            if lane_occupancy[i] == 0:
+                temp_length += 1
+                if temp_length > max_zeros_length:
+                    max_zeros_length = temp_length
+            else:
+                temp_length = 0
+        if max_zeros_length * 0.1 > 1.1 * VEHICLE_WIDTH:
+            available_lanes[lane_index] = temp_lane
+    return available_lanes
+
+def target_lane_choose_decider(lane_info_processed, available_lanes, pose_data):
+    """
+
+    :param lane_info_processed:
+    :param lane_list:
+    :param pose_data:
+    :return: target lane id
+    """
+    target_lane_id = -1
+    # 当前没有目标车道或者当前车道优先级不为正,为了切入车道，只需在场景开始时选择一次
+    if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_priority <= 0:
+        min_distance = 1000
+        for lane_index in available_lanes.keys():
+            temp_lane = available_lanes[lane_index]
+            # 暂时先考虑最近的车道
+            points_x, points_y = [], []
+            for j in range(len(temp_lane.points)):
+                points_x.append(temp_lane.points[j].x)
+                points_y.append(temp_lane.points[j].y)
+            points_num = len(points_x)
+            vehicle_result = lane_projection(points_x, points_y, points_num, pose_data.mapX, pose_data.mapY, pose_data.mapHeading)
+            if min_distance > vehicle_result[3]:
+                min_distance = vehicle_result[3]
+                target_lane_id = lane_index
+
+    # 当前处于正常行驶状态，为了提升行驶效率，而选择目标车道
 
 
-
-    pass
+    return target_lane_id
 
 def traffic_rules_decider():
     pass
