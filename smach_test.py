@@ -153,35 +153,60 @@ map:
     roadCurve
 '''
 
+class LanesOfInterest:
+    def __init__(self):
+        # self.points_x = []
+        # self.points_y = []
+        # self.points_num = 0
+        # self.projection_x = 0
+        # self.projection_y = 0
+        self.lane_id = 0
+        self.start_s = 0
+        self.end_s = 0
+        self.action_time = 0
+
+class ObstaclesOfInterest:
+    def __init__(self):
+        self.obstacle_id = 0
+        self.decision = 0
+
 class Obstacle:
-    def __init__(self, obstacle_msg):
+    def __init__(self, obstacle_msg, cur_lane_info):
         self.id = obstacle_msg.id
         self.type = 0
         self.length = 0
         self.width = 0
-        # self.height = 0
+        self.height = 0
+        self.cur_bounding_points = []
+        self.cur_velocity = 0
+        self.is_moving = 0
 
+        # 时序问题，边界障碍物提取好后，去判断用什么车道作为当前车道，选好当前车道后，做规则障碍物向车道的投影
         self.if_tracked = 0
-        self.detectedTime = []
+        self.detected_time = []
         self.history_center_points = []
         self.history_velocity = []
         self.history_heading = []
-        self.obstacle_update(obstacle_msg)
+        self.obstacle_update(obstacle_msg, cur_lane_info)
 
-        self.s_begin = 0
-        self.s_end = 0
-        self.l_begin = 0
-        self.l_end = 0
-        self.s_velocity = 0
-        self.l_velocity = 0
-        self.is_moving = 0
-        if lane_info != None:
-            self.obstacle_projection(lane_info)
+        self.around_lanes = {}
 
-        self.on_lane_id = 0
-        self.intention = 0
+        # 存储每一个时刻运动信息到当前所在车道的投影信息
+        self.s_velocity = []
+        self.l_velocity = []
+        self.dir_diff = []
+        self.lane_lateral_diff = []
+        self.history_lane_ids = []
+        self.s_record = []
+
+        self.cur_lane_id = 0
+
+        self.target_lane_id = 0
+        self.next_lane_id = 0
+        self.intention = 0 # 0 for free move, 1 for lane keeping , 2 for lane change left, 3 for lane change right. 4 for passing zebra crossing.
         self.predicted_center_points = []
         self.predicted_headings = []
+
         self.sub_decision = 0
         self.safe_distance = 0
 
@@ -303,10 +328,6 @@ def user_data_updater(user_data):
     user_data.lights_data = lights_data
 
 
-def scenario_definition_decider(scenario, userdata):
-    if scenario == '':
-        pass
-
 
 def scenario_transition_decider(scenario, stage, userdata):
     if scenario == 'STARTUP':
@@ -357,6 +378,7 @@ def scenario_transition_decider(scenario, stage, userdata):
 
 
     pass
+
 
 def intention_decider():
     pass
@@ -422,8 +444,11 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list):
         if max_zeros_length * 0.1 > 1.1 * VEHICLE_WIDTH:
             available_lanes[lane_index] = temp_lane
     return available_lanes
+    # 这里粗略的选择了可行驶车道
+    # 如果是单条窄边界在两条车道中间，车道无法变道的标识没有打上。
 
-def target_lane_choose_decider(lane_info_processed, available_lanes, pose_data):
+
+def target_lane_selector(lane_info_processed, available_lanes, pose_data, obstacles_list, scenario):
     """
 
     :param lane_info_processed:
@@ -433,7 +458,8 @@ def target_lane_choose_decider(lane_info_processed, available_lanes, pose_data):
     """
     target_lane_id = -1
     # 当前没有目标车道或者当前车道优先级不为正,为了切入车道，只需在场景开始时选择一次
-    if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_priority <= 0:
+    if scenario == "merge":
+    # if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_priority <= 0:
         min_distance = 1000
         for lane_index in available_lanes.keys():
             temp_lane = available_lanes[lane_index]
@@ -449,20 +475,201 @@ def target_lane_choose_decider(lane_info_processed, available_lanes, pose_data):
                 target_lane_id = lane_index
 
     # 当前处于正常行驶状态，为了提升行驶效率，而选择目标车道
+    elif scenario == "lane_follow":
+        pass
 
-
+    elif
     return target_lane_id
 
-def traffic_rules_decider():
+
+def lanes_of_interest_selector(lane_list, pose_data, target_lane_id, scenario):
+    """
+
+    :param lane_list:
+    :param pose_data:
+    :return:
+    """
+    # for merge and across scenario
+    if scenario == "merge":
+        lanes_of_interest = {}
+        project_x, project_y = [], []
+        project_s, project_l = [], []
+        speed_limit = []
+        lane_id = []
+        lateral_dis_to_target_lane = []
+        vehicle_dis_to_target_lane = 0
+        for lane_index in lane_list.keys():
+            temp_lane = lane_list[lane_index]
+            points_x, points_y = [], []
+            for j in range(len(temp_lane.points)):
+                points_x.append(temp_lane.points[j].x)
+                points_y.append(temp_lane.points[j].y)
+            points_num = len(points_x)
+            speed_limit.append(temp_lane.speedUpperLimit)
+            # 计算自车投影到各车道的投影点
+            vehicle_result = lane_projection(points_x, points_y, points_num,
+                                             pose_data.mapX, pose_data.mapY)
+            lane_id.append(lane_index)
+            project_x.append(vehicle_result[0])
+            project_y.append(vehicle_result[1])
+            project_s.append(vehicle_result[5])
+            project_l.append(vehicle_result[3])
+            if lane_index == target_lane_id:
+                vehicle_dis_to_target_lane = vehicle_result[3]
+
+        # 将各车道的投影点投影到目标车道，并记录投影横向距离
+        target_lane = lane_list[target_lane_id]
+        points_x, points_y = [], []
+        for j in range(len(target_lane.points)):
+            points_x.append(target_lane.points[j].x)
+            points_y.append(target_lane.points[j].y)
+        points_num = len(points_x)
+        for i in range(len(lane_id)):
+            projection_result = lane_projection(points_x, points_y, points_num,
+                            project_x[i], project_y[i])
+            lateral_dis_to_target_lane.append(projection_result[3])
+
+        # 选择横向距离在vehicle_dis_to_target_lane到 0 之间的车道作为感兴趣车道
+        # (lateral_dis_to_target_lane-vehicle_dis_to_target_lane)*(0-lateral_dis_to_target_lane)>0
+        if vehicle_dis_to_target_lane < 0:
+            for i in range(len(lane_id)):
+                if lateral_dis_to_target_lane[i] > vehicle_dis_to_target_lane and lateral_dis_to_target_lane[i] < 0.1:
+                    lane_of_interest = LanesOfInterest()
+                    lane_of_interest.lane_id = lane_id[i]
+                    lane_of_interest.end_s = project_s[i]
+                    time_required = TIME_ACC + TIME_DELAY + TIME_SPACE + abs(project_l[i]) / 5 * 3.6
+                    lane_of_interest.action_time = time_required
+                    longitudinal_distance = speed_limit[i] / 3.6 * time_required
+                    if project_s[i] < longitudinal_distance:
+                        lane_of_interest.start_s = 0
+                    else:
+                        lane_of_interest.start_s = project_s[i] - longitudinal_distance
+                    lanes_of_interest[lane_id[i]] = lane_of_interest
+        else:
+            for i in range(len(lane_id)):
+                if lateral_dis_to_target_lane[i] < vehicle_dis_to_target_lane and lateral_dis_to_target_lane[i] > -0.1:
+                    lane_of_interest = LanesOfInterest()
+                    lane_of_interest.lane_id = lane_id[i]
+                    lane_of_interest.end_s = project_s[i]
+                    time_required = TIME_ACC + TIME_DELAY + TIME_SPACE + abs(project_l[i]) / 5 * 3.6
+                    lane_of_interest.action_time = time_required
+                    longitudinal_distance = speed_limit[i] / 3.6 * time_required
+                    if project_s[i] < longitudinal_distance:
+                        lane_of_interest.start_s = 0
+                    else:
+                        lane_of_interest.start_s = project_s[i] - longitudinal_distance
+                    lanes_of_interest[lane_id[i]] = lane_of_interest
+
+    elif scenario == "intersection":
+
+
+    return lanes_of_interest
+
+
+def initial_priority_decider(lanes_of_interest, obstacles_list):
+    """
+    在开始 merge 或者 across 之前，确保每条感兴趣车道的感兴趣区域内的动态障碍物通行时间大于我的行动时间
+    :param lanes_of_interest:
+    :param obstacles_list:
+    :return:
+    """
+    obstacles_of_interest = {}
+    is_ready = True
+    for lane_index in lanes_of_interest.keys():
+        loi_info = lanes_of_interest[lane_index]
+        min_time = 1000
+        action_time = loi_info.action_time
+        for obstacle_index in obstacles_list.keys():
+            obstacle_info = obstacles_list[obstacle_index]
+            if obstacle_info.cur_lane_id == lane_index:
+                if obstacle_info.s_record[-1] < loi_info.end_s and obstacle_info.s_record[-1] > loi_info.start_s:
+                    if obstacle_info.s_velocity[-1] > 0:
+                        temp_time = (loi_info.end_s - obstacle_info.s_record[-1]) / obstacle_info.s_velocity[-1]
+                        if temp_time < min_time:
+                            min_time = temp_time
+                        else:
+                            #  其余属于感兴趣区域内的同向动态障碍物，小决策置超车
+                            obstacle_of_interest = ObstaclesOfInterest()
+                            obstacle_of_interest.obstacle_id = obstacle_index
+                            obstacle_of_interest.decision = 1
+                            obstacles_of_interest[obstacle_index] = obstacle_of_interest
+        if min_time < action_time:
+            is_ready = False
+    return is_ready, obstacles_of_interest
+
+
+def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_interest):
+    """
+    当已经开始执行 merge， 考虑在动态环境中的优先级，运动中的 merge，考虑超车
+    :param target_lane_id:
+    :param obstacles_list:
+    :return:
+    """
+    target_lane = lanes_of_interest[target_lane_id]
+    points_x, points_y = [], []
+    for j in range(len(target_lane.points)):
+        points_x.append(target_lane.points[j].x)
+        points_y.append(target_lane.points[j].y)
+    points_num = len(points_x)
+    # 计算自车投影到目标车道的投影点
+    vehicle_result = lane_projection(points_x, points_y, points_num,
+                                     pose_data.mapX, pose_data.mapY)
+    vehicle_s = vehicle_result[5]
+
+    target_lane_obstacles_id = []
+    target_lane_obstacles_s = []
+    for obstacle_index in obstacles_list.keys():
+        obstacle_info = obstacles_list[obstacle_index]
+        if obstacle_info.cur_lane_id == target_lane_id:
+            target_lane_obstacles_id.append(obstacle_index)
+            target_lane_obstacles_s.append(obstacle_info.s_record[-1])
+
+    # insert sort
+    count = len(target_lane_obstacles_id)
+    for i in range(1, count):
+        key = target_lane_obstacles_s[i]
+        id = target_lane_obstacles_id[i]
+        j = i - 1
+        while (j >= 0):
+            if target_lane_obstacles_s[j] > key:
+                target_lane_obstacles_s[j + 1] = target_lane_obstacles_s[j]
+                target_lane_obstacles_s[j] = key
+                target_lane_obstacles_id[j + 1] = target_lane_obstacles_id[j]
+                target_lane_obstacles_id[j] = id
+            j -= 1
+
+    target_slot = -1
+    for i in range(len(target_lane_obstacles_id)-1, -1, -1):
+        # 1) the slot’s front - obstacle back - merge and rear - obstacle front - merge are feasible;
+        # 2) the gap between obstacles is large enough for Boss plus proper spacing in front and rear;
+        # 3) the front obstacle’s velocity is greater than or equal to the rear obstacle’s velocity, so the gap is not closing;
+        # 4) the merge-between point will be reached before the checkpoint.
+        if target_lane_obstacles_s[i] > vehicle_s:
+            continue
+        else:
+            # slot[i,i+1]
+            front_obstacle = obstacles_list[target_lane_obstacles_id[i + 1]]
+            rear_obstacle = obstacles_list[target_lane_obstacles_id[i]]
+            if (1.2 * front_obstacle.s_velocity[-1] < rear_obstacle.s_velocity[-1]) & :
+                continue
+            elif front_obstacle.s_record[-1] - rear_obstacle.s_record[-1] > 2*(desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH):
+                target_slot = i
+                break
+
+    if target_slot != -1:
+        if
+
     pass
+
 
 def speed_limit_decider():
     pass
 
-def path_priority_decider():
+def re_global_planning_decider():
     pass
 
-def re_global_planning_decider():
+def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot):
+
     pass
 
 
@@ -489,18 +696,12 @@ class StartupCheck(smach.State):
             vehicle_status = 1
             if vehicle_status == 0:
                 continue
-            # check the obstacles in the conflicting ares.
-            target_lane_choose_decider(user_data.lane_info_processed, user_data.lane_list, user_data.pose_data)
-            # time_action =
-            # time_required =
-
-
-
+            return 'ready'
 
 
 class Startup(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes = ['succeeded'],
+        smach.State.__init__(self, outcomes = ['in_lane_driving', 'merge_and_across'],
                              input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
                              output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
@@ -508,7 +709,13 @@ class Startup(smach.State):
                              )
 
     def execute(self, user_data):
+        # 换挡，
+
         user_data_updater(user_data)
+        if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_priority <= 0:
+            return 'merge_and_across'
+        else:
+            return 'in_lane_driving'
         pass
 
 #########################################
@@ -526,10 +733,14 @@ class InLaneDriving(smach.State):
         while(1):
             rospy.sleep(1)
             user_data_updater(user_data)
-
+            available_lanes = available_lanes_selector(user_data.lane_list, user_data.pose_data, user_data.obstacles_list)
             # compare the reward value among the surrounding lanes.
+            target_lane = target_lane_selector(user_data.lane_info_processed, available_lanes, user_data.pose_data, user_data.obstacles_list, 'lane_follow')
+
+
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
+
             pass
 
 class LaneChangePreparing(smach.State):
@@ -959,7 +1170,7 @@ def main():
                                                  )
 
             with sm_con_scenario:
-                sm_scenario_startup = smach.StateMachine(outcomes=['succeeded'],
+                sm_scenario_startup = smach.StateMachine(outcomes=['in_lane_driving', 'merge_and_across'],
                                                          input_keys=['lane_info_processed', 'lane_list',
                                                                      'obstacles_list', 'signs_data', 'lights_data',
                                                                      'pose_data'],
@@ -969,8 +1180,10 @@ def main():
                                                          )
                 with sm_scenario_startup:
                     smach.StateMachine.add('STARTUP_CHECK', StartupCheck(), transitions={'ready': 'EXECUTE_STARTUP'})
-                    smach.StateMachine.add('EXECUTE_STARTUP', Startup(), transitions={'succeeded': 'succeeded'})
-                smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions={'succeeded': 'LANE_FOLLOW'})
+                    smach.StateMachine.add('EXECUTE_STARTUP', Startup(), transitions={'in_lane_driving': 'in_lane_driving',
+                                                                                      'merge_and_across': 'merge_and_across'})
+                smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions={'in_lane_driving': 'LANE_FOLLOW',
+                                                                                    'merge_and_across':'MERGE_AND_ACROSS'})
 
                 sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across'],
                                                              input_keys=['lane_info_processed', 'lane_list',

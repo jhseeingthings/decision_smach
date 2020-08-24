@@ -207,18 +207,18 @@ class Obstacle:
         self.history_heading = []
         self.obstacle_update(obstacle_msg, cur_lane_info)
 
-        self.s_begin = 0
-        self.s_end = 0
-        self.l_begin = 0
-        self.l_end = 0
+        self.around_lanes = {}
 
+        # 存储每一个时刻运动信息到当前所在车道的投影信息
         self.s_velocity = []
         self.l_velocity = []
         self.dir_diff = []
         self.lane_lateral_diff = []
         self.history_lane_ids = []
-        self.around_lanes = {}
+        self.s_record = []
+
         self.cur_lane_id = 0
+
         self.target_lane_id = 0
         self.next_lane_id = 0
         self.intention = 0 # 0 for free move, 1 for lane keeping , 2 for lane change left, 3 for lane change right. 4 for passing zebra crossing.
@@ -366,6 +366,7 @@ class Obstacle:
                                          self.history_heading[i])
                 self.lane_lateral_diff.append(result[3])
                 self.dir_diff.append(result[4])
+                self.s_record.append(result[5])
                 self.history_lane_ids.append(self.cur_lane_id)
                 self.s_velocity.append(math.cos(result[4]) * self.history_velocity[i])
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
