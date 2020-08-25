@@ -478,7 +478,8 @@ def target_lane_selector(lane_info_processed, available_lanes, pose_data, obstac
     elif scenario == "lane_follow":
         pass
 
-    elif
+    elif scenario == "parking":
+        pass
     return target_lane_id
 
 
@@ -561,7 +562,7 @@ def lanes_of_interest_selector(lane_list, pose_data, target_lane_id, scenario):
                     lanes_of_interest[lane_id[i]] = lane_of_interest
 
     elif scenario == "intersection":
-
+        pass
 
     return lanes_of_interest
 
@@ -650,14 +651,14 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_i
             # slot[i,i+1]
             front_obstacle = obstacles_list[target_lane_obstacles_id[i + 1]]
             rear_obstacle = obstacles_list[target_lane_obstacles_id[i]]
-            if (1.2 * front_obstacle.s_velocity[-1] < rear_obstacle.s_velocity[-1]) & :
+            if (1.2 * front_obstacle.s_velocity[-1] < rear_obstacle.s_velocity[-1]):
                 continue
             elif front_obstacle.s_record[-1] - rear_obstacle.s_record[-1] > 2*(desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH):
                 target_slot = i
                 break
 
     if target_slot != -1:
-        if
+        pass
 
     pass
 
@@ -992,6 +993,30 @@ class ExecutePark(smach.State):
     def execute(self, user_data):
         pass
 
+class PoseCheck(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['okay', 'need_to_adjust'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data', 'pose_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data', 'pose_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
+class RePark(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes = ['succeeded'],
+                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data', 'pose_data'],
+                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data', 'pose_data']
+                             )
+
+    def execute(self, user_data):
+        pass
+
 class AwaitMission(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['continue'],
@@ -1288,8 +1313,13 @@ def main():
                     smach.StateMachine.add('DRIVE_AND_STOP_IN_FRONT', DriveAndStopInFront(),
                                            transitions={'finished': 'EXECUTE_PARK'})
                     smach.StateMachine.add('EXECUTE_PARK', ExecutePark(),
-                                           transitions={'succeeded': 'AWAIT_MISSION',
+                                           transitions={'succeeded': 'POSE_CHECK',
                                                         'failed': 'MARK_PARKING_SPOT'})
+                    smach.StateMachine.add('POSE_CHECK', PoseCheck(),
+                                           transitions={'okay': 'AWAIT_MISSION',
+                                                        'need_to_adjust': 'RE_PARK'})
+                    smach.StateMachine.add('RE_PARK', RePark(),
+                                           transitions={'succeeded': 'POSE_CHECK'})
                     smach.StateMachine.add('AWAIT_MISSION', AwaitMission(),
                                            transitions={'continue': 'mission_continue'})
                     smach.StateMachine.add('MARK_PARKING_SPOT', MarkParkingSpot(),
