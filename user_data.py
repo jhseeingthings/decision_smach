@@ -14,7 +14,8 @@ class dataStruct:
     def __init__(self, x, y):
         self.x = x
         self.y = y
-
+    def update(self,x):
+        self.x = x
 
 # define state Foo
 class Foo(smach.State):
@@ -61,29 +62,30 @@ class Bar(smach.State):
 
 def update_data(user_data):
     user_data.data1 = data3
+    user_data.data1.update(100)
 
 
-# update the data periodically. outside the smach.
-def userdata_update(user_data):
-    global new_data
-    for i in range(10):
-        new_data.data1 = dataStruct(30 + i, 40)
-        new_data.data2 = 1 + i
-        user_data.update(new_data)
-        rospy.loginfo(new_data.data2)
-        rospy.loginfo('updating----')
-        try:
-            rospy.loginfo(data3.x)
-        except Exception as e:
-            pass
-        rospy.sleep(2)
+# # update the data periodically. outside the smach.
+# def userdata_update(user_data):
+#     global new_data
+#     for i in range(10):
+#         new_data.data1 = dataStruct(30 + i, 40+ i)
+#         new_data.data2 = 1 + i
+#         user_data.update(new_data)
+#         rospy.loginfo(new_data.data2)
+#         rospy.loginfo('updating----')
+#         try:
+#             rospy.loginfo(data3.x)
+#         except Exception as e:
+#             pass
+#         rospy.sleep(2)
 
 def fun1():
     rospy.loginfo('inside function 1')
     rospy.loginfo(new_data.keys())
     global data3, data4
     for i in range(10):
-        data3 = dataStruct(30 + i, 40)
+        data3 = dataStruct(30 + i, 40+i)
         data4 = 1 + i
         rospy.loginfo('updating data----')
         rospy.sleep(2)
@@ -98,7 +100,7 @@ def main():
 
     sm.userdata.sm_counter = 0
     sm.userdata.data1 = dataStruct(10, 20)
-    sm.userdata.data3 = dataStruct(100, 200)
+    # sm.userdata.data3 = dataStruct(100, 200)
     # Open the container
     with sm:
         # Add states to the container
