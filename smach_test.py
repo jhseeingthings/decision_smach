@@ -49,8 +49,6 @@ PREDICTION_DURATION = 5
 PREDICTION_PERIOD = 0.1
 
 
-decision_output = DecisionOutput()
-
 
 TIME_ACC = 1
 #is computed as the time for accelerating from zero up to speed in the destination lane using the same conservative acceleration.
@@ -1484,7 +1482,7 @@ class Startup(smach.State):
 
         user_data_updater(user_data)
         if lane_info_processed.cur_lane_id == -1:
-
+            pass
         if lane_info_processed.cur_priority <= 0:
             return 'merge_and_across'
         else:

@@ -5,7 +5,7 @@ from std_msgs.msg import String
 from local_messages.msg import Road
 from local_messages.msg import GlobalPose
 from local_messages.msg import Obstacles
-from local_messages.msg import Boundaries
+# from local_messages.msg import Boundaries
 from local_messages.msg import Lights
 from local_messages.msg import Signs
 
@@ -149,9 +149,9 @@ def global_pose_callback(global_pose_msg):
     if road_data != None:
         lane_info_processed = LaneInfoUpdate()
 
-def boundaries_callback(boundaries_msg):
-    global boundaries_data
-    boundaries_data = boundaries_msg
+# def boundaries_callback(boundaries_msg):
+#     global boundaries_data
+#     boundaries_data = boundaries_msg
 
 def lights_callback(lights_msg):
     global lights_data
@@ -192,7 +192,7 @@ def listener():
     rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
     rospy.Subscriber("map_road", Road, road_callback)
     rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
-    rospy.Subscriber("boundaries", Boundaries, boundaries_callback)
+    # rospy.Subscriber("boundaries", Boundaries, boundaries_callback)
     rospy.Subscriber("traffic_lights", Lights, lights_callback)
     rospy.Subscriber("traffic_signs", Signs, signs_callback)
 
@@ -598,7 +598,7 @@ def curve_fitting(points_x, points_y, points_num, order):
     # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_X)), mat_Y)
     return fitting_result
 
-
+"""
 class Obstacle:
     def __init__(self, obstacle_msg, cur_lane_info):
         self.id = obstacle_msg.id
@@ -912,7 +912,7 @@ class Obstacle:
         # ax.legend()
         # plt.show()
 
-
+"""
 
 
 
