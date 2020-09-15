@@ -9,6 +9,14 @@ import numpy as np
 import math
 import threading
 from multiprocessing.pool import ThreadPool
+from local_messages.msg import FilteredObstacles
+from local_messages.msg import FilteredObstacle
+from local_messages.msg import Decision
+
+
+
+
+
 # import all the msg and srv files
 
 # velocity defined by m/s
@@ -1437,7 +1445,8 @@ def re_global_planning_decider():
 
 
 def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot):
-
+    message = Decision()
+    message.
     pass
 
 

@@ -7,6 +7,7 @@ from local_messages.msg import GlobalPose
 from local_messages.msg import Obstacles
 # from local_messages.msg import Boundaries
 from local_messages.msg import Lights
+from local_messages.msg import Light
 from local_messages.msg import Signs
 
 
