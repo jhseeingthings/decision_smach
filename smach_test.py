@@ -157,7 +157,6 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw = 0.0, type = 0
     return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
 
-
 '''
 FSM:
     Input:
