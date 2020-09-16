@@ -12,7 +12,7 @@ from multiprocessing.pool import ThreadPool
 from local_messages.msg import FilteredObstacles
 from local_messages.msg import FilteredObstacle
 from local_messages.msg import Decision
-
+from geometry_msgs import Point32
 
 
 
@@ -1446,7 +1446,18 @@ def re_global_planning_decider():
 
 def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot):
     message = Decision()
-    message.
+    message.scenario = scenario
+    message.speedUpperLimit = speed_upper_limit
+    message.speedLowerLimit = speed_lower_limit
+    message.refPath = reference_path
+    message.selectedParkingLot = selected_parking_lot
+    for obstacle in filtered_obstacles:
+        filtered_obstacle = FilteredObstacle()
+        filtered_obstacle.type = obstacle.type
+        filtered_obstacle.width = obstacle.width
+        filtered_obstacle.length = obstacle.length
+
+        filtered_obstacle.predictedCenterPointsTrajectory =
     pass
 
 
