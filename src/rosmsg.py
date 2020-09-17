@@ -4,7 +4,7 @@ import rospy
 from std_msgs.msg import String
 from local_messages.msg import Road
 from local_messages.msg import Lane
-
+from geometry_msgs.msg import Point32
 from local_messages.msg import GlobalPose
 from local_messages.msg import Obstacles
 from local_messages.msg import Lights
