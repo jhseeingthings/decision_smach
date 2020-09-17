@@ -12,9 +12,17 @@ from multiprocessing.pool import ThreadPool
 from local_messages.msg import FilteredObstacles
 from local_messages.msg import FilteredObstacle
 from local_messages.msg import Decision
-from geometry_msgs import Point32
+from geometry_msgs.msg import Point32
 
-
+from local_messages.msg import Road
+from local_messages.msg import Lane
+from local_messages.msg import GlobalPose
+from local_messages.msg import Obstacles
+from local_messages.msg import Obstacle
+from local_messages.msg import Lights
+from local_messages.msg import Light
+from local_messages.msg import Signs
+from local_messages.msg import Sign
 
 
 # import all the msg and srv files
@@ -204,6 +212,69 @@ FSM:
 map:
     roadCurve
 '''
+
+
+def road_callback(road_msg):
+    global lane_list
+    road_data = road_msg
+    lane_list = {} # {'id':'lane'}
+    for k in range(len(road_data.lanes)):
+        lane_list[road_data.lanes[k].id] = road_data.lanes[k]
+    rospy.loginfo('map_data_updated')
+
+def global_pose_callback(global_pose_msg):
+    global global_pose_data
+    global_pose_data = global_pose_msg
+    rospy.loginfo('pose_data_updated')
+
+def lights_callback(lights_msg):
+    global lights_data
+    lights_data = lights_msg
+    rospy.loginfo('lights_data_updated')
+
+def signs_callback(signs_msg):
+    global signs_data
+    signs_data = signs_msg
+    rospy.loginfo('signs_data_updated')
+
+def obstacles_callback(obstacles_msg):
+    global obstacles_list
+    # record road data of the current moment.
+    temp_lane_info = lane_list
+    # reset the if_tracked tag
+    for k in obstacles_list.keys():
+        obstacles_list[k].if_tracked = 0
+
+    for i in range(len(obstacles_msg.obstacles)):
+        # update old obstacles
+        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+        # generate new obstacle
+        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
+
+    for k in obstacles_list.keys():
+        if obstacles_list[k].if_tracked == 0:
+            del obstacles_list[k]
+    rospy.loginfo('obstacles_data_updated')
+
+
+def listener():
+    # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
+    rospy.init_node('listener', anonymous = True)
+
+    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
+    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
+    rospy.Subscriber("map_road", Road, road_callback)
+    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback)
+
+    # spin() simply keeps python from exiting until this node is stopped
+    # rospy.spin()
+
+    # 只 spin 有 callback 的语句
 
 
 # update lane information, triggered when the global pose is updated.
@@ -578,28 +649,6 @@ class TrafficLight:
         self.position_x = 0
         self.position_y = 0
 
-
-class DecisionOutput:
-    def __init__(self):
-        # The current scenario of the vehicle.
-        self.scenario = 0
-        # int32 REFPATHFOLLOW = 1
-        # int32 EMERGENCYBRAKE = 2
-        # int32 PARK = 3
-
-        # Sub-behavior: extracts the obstacles of interest, contains the predicted motion states of the obstacles and the interactive behaviors towards the obstacles.
-        self.filteredObstacles = FilteredObstacles()
-
-        # The speed boundary in the present situation.
-        self.speedUpperLimit = 0
-        self.speedLowerLimit = 0
-
-        # The reference path in the present situation, it can be the target lane or the center line of the boundaries.
-        # The target point is the last point in this reference path.
-        self.refPath = []
-
-        #Selected parking lot information
-        self.SelectedParkingLot = []
 
 #############
 # FilteredObstacles.msg
