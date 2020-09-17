@@ -760,12 +760,14 @@ def desired_safety_distance(velocity):
     return max(1, velocity * 3.6 / 10) * MIN_DISTANCE_GAP
 
 def user_data_updater(user_data):
+    rospy.loginfo('updating data------')
     user_data.lane_info_processed = lane_info_processed
     user_data.lane_list = lane_list
     user_data.pose_data = global_pose_data
     user_data.obstacles_list = obstacles_list
     user_data.signs_data = signs_data
     user_data.lights_data = lights_data
+    print('data updated.')
 
 
 def parking_spot_choose_decider():

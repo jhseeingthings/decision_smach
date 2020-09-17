@@ -3,12 +3,15 @@
 import rospy
 from std_msgs.msg import String
 from local_messages.msg import Road
+from local_messages.msg import Lane
+
 from local_messages.msg import GlobalPose
 from local_messages.msg import Obstacles
-# from local_messages.msg import Boundaries
 from local_messages.msg import Lights
 from local_messages.msg import Light
 from local_messages.msg import Signs
+import smach_ros
+import smach
 
 
 import numpy as np
@@ -135,165 +138,68 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw = 0, type = 0):
 
 
 def road_callback(road_msg):
-    global road_data, lane_list
+    global lane_list
     road_data = road_msg
-
     lane_list = {} # {'id':'lane'}
     for k in range(len(road_data.lanes)):
         lane_list[road_data.lanes[k].id] = road_data.lanes[k]
-    # rospy.loginfo(rospy.get_caller_id() + "I heard %s", data.data)
+    rospy.loginfo('map_data_updated')
 
-def global_pose_callback(global_pose_msg):
-    global global_pose_data, lane_info_processed
-    global_pose_data = global_pose_msg
-    # process lane information when the global pose updates
-    if road_data != None:
-        lane_info_processed = LaneInfoUpdate()
+# def global_pose_callback(global_pose_msg):
+#     global global_pose_data, lane_info_processed
+#     global_pose_data = global_pose_msg
+#     # process lane information when the global pose updates
+#     if road_data != None:
+#         lane_info_processed = LaneInfoUpdate()
 
-# def boundaries_callback(boundaries_msg):
-#     global boundaries_data
-#     boundaries_data = boundaries_msg
 
-def lights_callback(lights_msg):
-    global lights_data
-    lights_data = lights_msg
 
-def signs_callback(signs_msg):
-    global signs_data
-    signs_data = signs_msg
-
-def obstacles_callback(obstacles_msg):
-    global obstacles_data, obstacles_list
-
-    # record road data of the current moment.
-    temp_lane_info = road_data
-    # reset the if_tracked tag
-    for k in obstacles_list.keys():
-        obstacles_list[k].if_tracked = 0
-
-    for i in range(len(obstacles_msg.obstacles)):
-        # update old obstacles
-        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
-            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
-        # generate new obstacle
-        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
-            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
-            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
-
-    for k in obstacles_list.keys():
-        if obstacles_list[k].if_tracked == 0:
-            del obstacles_list[k]
-
+# def lights_callback(lights_msg):
+#     global lights_data
+#     lights_data = lights_msg
+#
+# def signs_callback(signs_msg):
+#     global signs_data
+#     signs_data = signs_msg
+#
+# def obstacles_callback(obstacles_msg):
+#     global obstacles_data, obstacles_list
+#
+#     # record road data of the current moment.
+#     temp_lane_info = road_data
+#     # reset the if_tracked tag
+#     for k in obstacles_list.keys():
+#         obstacles_list[k].if_tracked = 0
+#
+#     for i in range(len(obstacles_msg.obstacles)):
+#         # update old obstacles
+#         if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+#             obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+#         # generate new obstacle
+#         if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+#             temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+#             obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
+#
+#     for k in obstacles_list.keys():
+#         if obstacles_list[k].if_tracked == 0:
+#             del obstacles_list[k]
+#
 
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
     rospy.init_node('listener', anonymous = True)
 
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
-    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
+    # rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
     rospy.Subscriber("map_road", Road, road_callback)
-    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
-    # rospy.Subscriber("boundaries", Boundaries, boundaries_callback)
-    rospy.Subscriber("traffic_lights", Lights, lights_callback)
-    rospy.Subscriber("traffic_signs", Signs, signs_callback)
+    # rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
+    # rospy.Subscriber("traffic_lights", Lights, lights_callback)
+    # rospy.Subscriber("traffic_signs", Signs, signs_callback)
 
     # spin() simply keeps python from exiting until this node is stopped
-    rospy.spin()
+    # rospy.spin()
 
     # 只 spin 有 callback 的语句
-
-
-#########################
-# extract center points from two boundaries.
-def getBoundariesCenterPoints(boundary1, boundary2):
-    boundaryPointsNumber1 = len(boundary1)
-    boundaryPointsNumber2 = len(boundary2)
-    midPointsList1 = []
-    midPointsList2 = []
-    for i in range(boundaryPointsNumber1):
-        x1 = boundary1[i][0]
-        y1 = boundary1[i][1]
-        minDistance = 1000000
-        for j in range(boundaryPointsNumber2):
-            x2 = boundary2[j][0]
-            y2 = boundary2[j][1]
-            tempDistance = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-            if (tempDistance < minDistance):
-                minDistance = tempDistance
-                nearestPointX = x2
-                nearestPointY = y2
-        midPointX = (x1 + nearestPointX) / 2
-        midPointY = (y1 + nearestPointY) / 2
-        midPointsList1.append([midPointX, midPointY])
-    for i in range(boundaryPointsNumber2):
-        x2 = boundary2[i][0]
-        y2 = boundary2[i][1]
-        minDistance = 1000000
-        for j in range(boundaryPointsNumber1):
-            x1 = boundary1[j][0]
-            y1 = boundary1[j][1]
-            tempDistance = math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2)
-            if (tempDistance < minDistance):
-                minDistance = tempDistance
-                nearestPointX = x1
-                nearestPointY = y1
-        midPointX = (x2 + nearestPointX) / 2
-        midPointY = (y2 + nearestPointY) / 2
-        midPointsList2.append([midPointX, midPointY])
-    return midPointsList1, midPointsList2
-
-
-# find the nearest point ahead
-def getClosestPoint(curPointPositionX, curPointPositionY, curPointPositionYaw, pointList):
-    minDistance = 100000
-    closestMidPointX = -1
-    closestMidPointY = -1
-    for i in range(len(pointList)):
-        vehicle2MidPoint = np.array([pointList[i][0] - curPointPositionX, pointList[i][1] - curPointPositionY])
-        vec_yaw = np.array([math.cos(curPointPositionYaw), math.sin(curPointPositionYaw)])
-        cosAngel = np.dot(vehicle2MidPoint, vec_yaw) / np.linalg.norm(vehicle2MidPoint) / np.linalg.norm(vec_yaw)
-        tempDistance = math.sqrt((pointList[i][0] - curPointPositionX) ** 2 + (pointList[i][1] - curPointPositionY) ** 2)
-        if tempDistance < minDistance and cosAngel > 0.5:
-            minDistance = tempDistance
-            closestMidPointX = pointList[i][0]
-            closestMidPointY = pointList[i][1]
-    return closestMidPointX, closestMidPointY
-
-
-# remove duplicated points, rearrange points with direction and distance
-def getBoundariesCenterLine(midPointsList1, midPointsList2, curX, curY, curYaw):
-    preMassMidPointsList = []
-    for i in range(len(midPointsList1)):
-        preMassMidPointsList.append(midPointsList1[i])
-    for i in range(len(midPointsList2)):
-        preMassMidPointsList.append(midPointsList2[i])
-    massMidPointsList = []
-    # 去除重复点
-    for i in range(len(preMassMidPointsList)):
-        if preMassMidPointsList[i] not in massMidPointsList:
-            massMidPointsList.append(preMassMidPointsList[i])
-        else:
-            pass
-    centerLine = []
-    curPointPositionX = curX
-    curPointPositionY = curY
-    curPointPositionYaw = curYaw
-    pointList = []
-    print(massMidPointsList)
-    for i in range(len(massMidPointsList)):
-        pointList.append(massMidPointsList[i])
-    while (1):
-        closestMidPointX, closestMidPointY = getClosestPoint(curPointPositionX, curPointPositionY, curPointPositionYaw,
-                                                             pointList)
-        if closestMidPointX == -1 and closestMidPointY == -1:
-            break
-        centerLine.append([closestMidPointX, closestMidPointY])
-        pointList.remove([closestMidPointX, closestMidPointY])
-        curPointPositionYaw = math.atan2(closestMidPointY - curPointPositionY, closestMidPointX - curPointPositionX)
-        curPointPositionX = closestMidPointX
-        curPointPositionY = closestMidPointY
-
-    return centerLine
 
 
 # update lane information, triggered when the global pose is updated.
@@ -598,6 +504,198 @@ def curve_fitting(points_x, points_y, points_num, order):
     # temp_result = np.linalg.inv(np.dot(np.transpose(mat_X), mat_X))
     # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_X)), mat_Y)
     return fitting_result
+
+
+class dataStruct:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+    def update(self, x):
+        self.x = x
+
+
+# define state Foo
+class Foo(smach.State):
+    def __init__(self):
+        smach.State.__init__(self,
+                             outcomes=['outcome1', 'outcome2'],
+                             input_keys=['foo_counter_in'],
+                             output_keys=['foo_counter_out'])
+
+    def execute(self, user_data):
+        rospy.loginfo('Executing state FOO')
+        if user_data.foo_counter_in < 5:
+            user_data.foo_counter_out = user_data.foo_counter_in + 1
+            return 'outcome1'
+        else:
+            return 'outcome2'
+
+
+# define state Bar
+class Bar(smach.State):
+    def __init__(self):
+        smach.State.__init__(self,
+                             outcomes=['outcome1'],
+                             input_keys=['bar_counter_in', 'bar_counter_in1'])
+
+    def execute(self, user_data):
+        lane_info = userdata_update(user_data)
+        rospy.loginfo('Executing state BAR')
+        rospy.loginfo('Counter = %f' % user_data.bar_counter_in.x)
+        rospy.loginfo('Counter = %f' % user_data.bar_counter_in.y)
+        rospy.loginfo('Counter = %f' % user_data.bar_counter_in1)
+        rospy.sleep(3)
+        try:
+            rospy.loginfo(lane_info[48])
+        except:
+            pass
+        return 'outcome1'
+
+
+def userdata_update(user_data):
+    # new_data = smach.UserData()
+    # new_data.data1 = dataStruct(30, 40)
+    # new_data.data2 = 1
+    # user_data.update(new_data)
+    rospy.loginfo('updating----')
+    # global lane_list
+    lane_info = lane_list
+    rospy.loginfo(lane_info.keys())
+    return lane_info
+
+
+def state_machine_main():
+# Create a SMACH state machine
+    sm = smach.StateMachine(outcomes=['outcome4'])
+    sm.userdata.sm_counter = 0
+    sm.userdata.data1 = dataStruct(10,20)
+    # Open the container
+    with sm:
+        # Add states to the container
+        smach.StateMachine.add('FOO', Foo(),
+                               transitions={'outcome1':'BAR',
+                                            'outcome2':'outcome4'},
+                               remapping={'foo_counter_in':'sm_counter',
+                                          'foo_counter_out':'sm_counter'})
+        smach.StateMachine.add('BAR', Bar(),
+                               transitions={'outcome1':'FOO'},
+                               remapping={'bar_counter_in':'data1',
+					  'bar_counter_in1':'sm_counter'})
+
+    # Create and start the introspection server
+    sis = smach_ros.IntrospectionServer('my_smach_introspection_server', sm, '/SM_ROOT')
+    sis.start()
+    sm.execute()
+
+    rospy.spin()
+    sis.stop()
+
+if __name__ == '__main__':
+    listener()
+    state_machine_main()
+
+
+
+# class DBSCAN:
+#     def __init__(self, m, eps, min_points):
+#         self.cluster_result = self.dbscan(m, eps, min_points)
+# 
+#     def _dist(self, p, q):
+#         return math.sqrt(np.power(p - q, 2).sum())
+# 
+#     def _eps_neighborhood(self, p, q, eps):
+#         return self._dist(p, q) < eps
+# 
+#     def _region_query(self, m, point_id, eps):
+#         n_points = m.shape[1]
+#         seeds = []
+#         for i in range(0, n_points):
+#             if self._eps_neighborhood(m[:, point_id], m[:, i], eps):
+#                 seeds.append(i)
+#         return seeds
+# 
+#     def _expand_cluster(self, m, classifications, point_id, cluster_id, eps, min_points):
+#         seeds = self._region_query(m, point_id, eps)
+#         if len(seeds) < min_points:
+#             classifications[point_id] = NOISE
+#             return False
+#         else:
+#             # classifications[point_id] = cluster_id
+#             for seed_id in seeds:
+#                 classifications[seed_id] = cluster_id
+#             while len(seeds) > 0:
+#                 current_point = seeds[0]
+#                 print(seeds)
+#                 results = self._region_query(m, current_point, eps)
+#                 if len(results) >= min_points:
+#                     for i in range(0, len(results)):
+#                         result_point = results[i]
+#                         if classifications[result_point] == UNCLASSIFIED or \
+#                            classifications[result_point] == NOISE:
+#                             if classifications[result_point] == UNCLASSIFIED:
+#                                 seeds.append(result_point)
+#                             classifications[result_point] = cluster_id
+#                 seeds = seeds[1:]
+#             return True
+# 
+#     def dbscan(self, m, eps, min_points):
+#         """Implementation of Density Based Spatial Clustering of Applications with Noise
+#         See https://en.wikipedia.org/wiki/DBSCAN
+# 
+#         scikit-learn probably has a better implementation
+# 
+#         Uses Euclidean Distance as the measure
+# 
+#         Inputs:
+#         m - A matrix whose columns are feature vectors
+#         eps - Maximum distance two points can be to be regionally related
+#         min_points - The minimum number of points to make a cluster
+# 
+#         Outputs:
+#         An array with either a cluster id number or dbscan.NOISE (None) for each
+#         column vector in m.
+#         """
+#         cluster_id = 1
+#         n_points = m.shape[1]
+#         classifications = [UNCLASSIFIED] * n_points
+#         for point_id in range(0, n_points):
+#             point = m[:, point_id]
+#             if classifications[point_id] == UNCLASSIFIED: # 对于没有分过类的点
+#                 if self._expand_cluster(m, classifications, point_id, cluster_id, eps, min_points):
+#                     cluster_id = cluster_id + 1
+# 
+#         index_outer = []
+#         cluster_number = max(classifications)
+#         index_outer.append(cluster_number)
+#         for i in range(1, cluster_number + 1):
+#             index_inner = []
+#             for j in range(len(classifications)):
+#                 if classifications[j] == i:
+#                     index_inner.append(j)
+#             index_outer.append(index_inner)
+# 
+#         return classifications, index_outer
+
+
+#
+# m = np.matrix('1 0.8 3.7 1.2 3.9 3.6 10 6; 1.1 1 4 0.8 3.9 4.1 10 7')
+#     eps = 0.3
+#     min_points = 1
+#     print(m.shape[0], m.shape[1])
+#     cluster_result = DBSCAN(m, eps, min_points)
+
+
+
+# # msg 的封装
+# msgs = Lights()
+# for direction,color in zip(directions,colors):
+#         #turn detection results into ros message
+#         msg = Light()
+#         msg.directionIndication=direction
+#         msg.color = color
+#         msgs.lights.append(msg)
+#     return msgs,traj_image
+
 
 """
 class Obstacle:
@@ -914,111 +1012,3 @@ class Obstacle:
         # plt.show()
 
 """
-
-
-
-if __name__ == '__main__':
-    listener()
-
-
-
-
-# class DBSCAN:
-#     def __init__(self, m, eps, min_points):
-#         self.cluster_result = self.dbscan(m, eps, min_points)
-# 
-#     def _dist(self, p, q):
-#         return math.sqrt(np.power(p - q, 2).sum())
-# 
-#     def _eps_neighborhood(self, p, q, eps):
-#         return self._dist(p, q) < eps
-# 
-#     def _region_query(self, m, point_id, eps):
-#         n_points = m.shape[1]
-#         seeds = []
-#         for i in range(0, n_points):
-#             if self._eps_neighborhood(m[:, point_id], m[:, i], eps):
-#                 seeds.append(i)
-#         return seeds
-# 
-#     def _expand_cluster(self, m, classifications, point_id, cluster_id, eps, min_points):
-#         seeds = self._region_query(m, point_id, eps)
-#         if len(seeds) < min_points:
-#             classifications[point_id] = NOISE
-#             return False
-#         else:
-#             # classifications[point_id] = cluster_id
-#             for seed_id in seeds:
-#                 classifications[seed_id] = cluster_id
-#             while len(seeds) > 0:
-#                 current_point = seeds[0]
-#                 print(seeds)
-#                 results = self._region_query(m, current_point, eps)
-#                 if len(results) >= min_points:
-#                     for i in range(0, len(results)):
-#                         result_point = results[i]
-#                         if classifications[result_point] == UNCLASSIFIED or \
-#                            classifications[result_point] == NOISE:
-#                             if classifications[result_point] == UNCLASSIFIED:
-#                                 seeds.append(result_point)
-#                             classifications[result_point] = cluster_id
-#                 seeds = seeds[1:]
-#             return True
-# 
-#     def dbscan(self, m, eps, min_points):
-#         """Implementation of Density Based Spatial Clustering of Applications with Noise
-#         See https://en.wikipedia.org/wiki/DBSCAN
-# 
-#         scikit-learn probably has a better implementation
-# 
-#         Uses Euclidean Distance as the measure
-# 
-#         Inputs:
-#         m - A matrix whose columns are feature vectors
-#         eps - Maximum distance two points can be to be regionally related
-#         min_points - The minimum number of points to make a cluster
-# 
-#         Outputs:
-#         An array with either a cluster id number or dbscan.NOISE (None) for each
-#         column vector in m.
-#         """
-#         cluster_id = 1
-#         n_points = m.shape[1]
-#         classifications = [UNCLASSIFIED] * n_points
-#         for point_id in range(0, n_points):
-#             point = m[:, point_id]
-#             if classifications[point_id] == UNCLASSIFIED: # 对于没有分过类的点
-#                 if self._expand_cluster(m, classifications, point_id, cluster_id, eps, min_points):
-#                     cluster_id = cluster_id + 1
-# 
-#         index_outer = []
-#         cluster_number = max(classifications)
-#         index_outer.append(cluster_number)
-#         for i in range(1, cluster_number + 1):
-#             index_inner = []
-#             for j in range(len(classifications)):
-#                 if classifications[j] == i:
-#                     index_inner.append(j)
-#             index_outer.append(index_inner)
-# 
-#         return classifications, index_outer
-
-
-#
-# m = np.matrix('1 0.8 3.7 1.2 3.9 3.6 10 6; 1.1 1 4 0.8 3.9 4.1 10 7')
-#     eps = 0.3
-#     min_points = 1
-#     print(m.shape[0], m.shape[1])
-#     cluster_result = DBSCAN(m, eps, min_points)
-
-
-
-# # msg 的封装
-# msgs = Lights()
-# for direction,color in zip(directions,colors):
-#         #turn detection results into ros message
-#         msg = Light()
-#         msg.directionIndication=direction
-#         msg.color = color
-#         msgs.lights.append(msg)
-#     return msgs,traj_image
