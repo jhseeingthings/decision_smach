@@ -1495,21 +1495,39 @@ def re_global_planning_decider():
     pass
 
 
-def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot):
+def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot, reference_gear):
     message = Decision()
     message.scenario = scenario
     message.speedUpperLimit = speed_upper_limit
     message.speedLowerLimit = speed_lower_limit
     message.refPath = reference_path
     message.selectedParkingLot = selected_parking_lot
+    message.refGear = reference_gear
+    filtered_obstacles_list = []
     for obstacle in filtered_obstacles:
         filtered_obstacle = FilteredObstacle()
         filtered_obstacle.type = obstacle.type
         filtered_obstacle.width = obstacle.width
         filtered_obstacle.length = obstacle.length
-
-        filtered_obstacle.predictedCenterPointsTrajectory =
-    pass
+        filtered_obstacle.isMoving = obstacle.is_moving
+        filtered_obstacle.decision = obstacle.sub_decision
+        filtered_obstacle.safeDistance = obstacle.safe_distance
+        for point in obstacle.predicted_center_points:
+            temp_point = Point32()
+            temp_point.x = point[0]
+            temp_point.y = point[1]
+            temp_point.z = 0
+            filtered_obstacle.predictedCenterPointsTrajectory.append(temp_point)
+        for heading in obstacle.predicted_headings:
+            temp_heading = Point32()
+            temp_heading.x = heading[0]
+            temp_heading.y = heading[1]
+            temp_heading.z = 0
+            filtered_obstacle.predictedHeadings.append(temp_heading)
+        filtered_obstacles_list.append(filtered_obstacle)
+    message.filteredObstacles = filtered_obstacles_list
+    decision_msg_pub = rospy.Publisher('decision_behavior', Decision)
+    decision_msg_pub.publish(message)
 
 
 
@@ -1984,20 +2002,20 @@ class Await(smach.State):
     def execute(self, user_data):
         pass
 
-def re_global_planning():
-    rospy.init_node('greetings_client')
-    #   等待有可用的服务"greetings"
-    rospy.wait_for_service("greetings")
-    try:
-        # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
-        greetings_client = rospy.ServiceProxy("greetings", Greeting)
-        # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
-        # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
-        # resp = greetings_client("HAN",20)
-        resp = greetings_client.call("HAN", 20)
-        rospy.loginfo("Message From server:%s" % resp.feedback)
-    except rospy.ServiceException as e:
-        rospy.logwarn("Service call failed: %s" % e)
+# def re_global_planning():
+#     rospy.init_node('greetings_client')
+#     #   等待有可用的服务"greetings"
+#     rospy.wait_for_service("greetings")
+#     try:
+#         # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
+#         greetings_client = rospy.ServiceProxy("greetings", Greeting)
+#         # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
+#         # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
+#         # resp = greetings_client("HAN",20)
+#         resp = greetings_client.call("HAN", 20)
+#         rospy.loginfo("Message From server:%s" % resp.feedback)
+#     except rospy.ServiceException as e:
+#         rospy.logwarn("Service call failed: %s" % e)
 
 
 def main():
