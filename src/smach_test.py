@@ -1592,10 +1592,11 @@ class InLaneDriving(smach.State):
         while(1):
             rospy.sleep(1)
             user_data_updater(user_data)
-            available_lanes = available_lanes_selector(user_data.lane_info_processed, user_data.lane_list, user_data.pose_data, user_data.obstacles_list)
+            current_lane_info, available_lanes = current_lane_selector(lane_list, user_data.pose_data)
+            available_lanes, current_lane_info = available_lanes_selector(lane_list, user_data.pose_data, user_data.obstacles_list, current_lane_info, available_lanes)
             # compare the reward value among the surrounding lanes.
             target_lane = target_lane_selector(user_data.lane_info_processed, available_lanes, user_data.pose_data, user_data.obstacles_list, 'lane_follow')
-
+            target_lane_id, next_lane_id =
 
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
