@@ -19,14 +19,14 @@ import math
 import matplotlib.pyplot as plt
 from matplotlib.path import Path
 
-road_data = None
+# road_data = None
 global_pose_data = None
 # obstacles_data = None
-boundaries_data = None
+# boundaries_data = None
 signs_data = None
 lights_data = None
 
-lane_info_processed = None
+# lane_info_processed = None
 lane_list = {}
 
 # obstacles_info = None
@@ -145,327 +145,59 @@ def road_callback(road_msg):
         lane_list[road_data.lanes[k].id] = road_data.lanes[k]
     rospy.loginfo('map_data_updated')
 
-# def global_pose_callback(global_pose_msg):
-#     global global_pose_data, lane_info_processed
-#     global_pose_data = global_pose_msg
-#     # process lane information when the global pose updates
-#     if road_data != None:
-#         lane_info_processed = LaneInfoUpdate()
+def global_pose_callback(global_pose_msg):
+    global global_pose_data
+    global_pose_data = global_pose_msg
+    rospy.loginfo('pose_data_updated')
 
+def lights_callback(lights_msg):
+    global lights_data
+    lights_data = lights_msg
+    rospy.loginfo('lights_data_updated')
 
+def signs_callback(signs_msg):
+    global signs_data
+    signs_data = signs_msg
+    rospy.loginfo('signs_data_updated')
 
-# def lights_callback(lights_msg):
-#     global lights_data
-#     lights_data = lights_msg
-#
-# def signs_callback(signs_msg):
-#     global signs_data
-#     signs_data = signs_msg
-#
-# def obstacles_callback(obstacles_msg):
-#     global obstacles_data, obstacles_list
-#
-#     # record road data of the current moment.
-#     temp_lane_info = road_data
-#     # reset the if_tracked tag
-#     for k in obstacles_list.keys():
-#         obstacles_list[k].if_tracked = 0
-#
-#     for i in range(len(obstacles_msg.obstacles)):
-#         # update old obstacles
-#         if obstacles_msg.obstacles[i].id in obstacles_list.keys():
-#             obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
-#         # generate new obstacle
-#         if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
-#             temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
-#             obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
-#
-#     for k in obstacles_list.keys():
-#         if obstacles_list[k].if_tracked == 0:
-#             del obstacles_list[k]
-#
+def obstacles_callback(obstacles_msg):
+    global obstacles_list
+    # record road data of the current moment.
+    temp_lane_info = lane_list
+    # reset the if_tracked tag
+    for k in obstacles_list.keys():
+        obstacles_list[k].if_tracked = 0
+
+    for i in range(len(obstacles_msg.obstacles)):
+        # update old obstacles
+        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+        # generate new obstacle
+        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
+
+    for k in obstacles_list.keys():
+        if obstacles_list[k].if_tracked == 0:
+            del obstacles_list[k]
+    rospy.loginfo('obstacles_data_updated')
+
 
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
     rospy.init_node('listener', anonymous = True)
 
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
-    # rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
+    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
     rospy.Subscriber("map_road", Road, road_callback)
-    # rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
-    # rospy.Subscriber("traffic_lights", Lights, lights_callback)
-    # rospy.Subscriber("traffic_signs", Signs, signs_callback)
+    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
 
     # 只 spin 有 callback 的语句
-
-
-# update lane information, triggered when the global pose is updated.
-class LaneInfoUpdate:
-    def __init__(self):
-        self.lanes = road_data.lanes
-        self.offset = []
-        self.dir_diff = []
-        self.before_length = [] # 记录对于每一段 lane 已经行驶过的长度
-        self.after_length = [] # 记录对于每一段 lane 没有行驶过的长度
-        self.points_x = []
-        self.points_y = []
-        self.points_num = 0
-
-        self.cur_lane_x = []
-        self.cur_lane_y = []
-        self.cur_lane_num = 0
-        self.cur_lane_id = 0
-        self.left_lane_id = 0
-        self.right_lane_id = 0
-        self.cur_lane_width = 0
-        self.left_lane_width = 0
-        self.right_lane_width = 0
-        self.next_stop_type = 0
-        self.dist_to_next_stop = 0
-        self.dist_to_next_road = 0
-        self.cur_turn_type = 0
-        self.next_turn_type = 0
-        self.can_change_left = 0
-        self.can_change_right = 0
-        self.speed_upper_limit = 0
-        self.speed_lower_limit = 0
-        self.lead_to_ids = []
-        self.lead_to_priority = []
-        self.cur_priority = 0
-        self.left_priority = []
-        self.right_priority = []
-
-        self.lane_of_interest = []
-
-        self.lane_message_process()
-
-    def lane_message_process(self):
-        for i in range(len(self.lanes)):
-            self.points_x = []
-            self.points_y = []
-            for j in range(len(self.lanes[i].points)):
-                self.points_x.append(self.lanes[i].points[j].x)
-                self.points_y.append(self.lanes[i].points[j].y)
-            self.points_num = len(self.points_x)
-            result = lane_projection(self.points_x, self.points_y, self.points_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
-            self.offset.append(result[3])
-            self.dir_diff.append(result[4])
-            self.before_length.append(result[5])
-            self.after_length.append(result[6])
-
-        # choose current lane id and index
-        # DIR_THRESHOLD = 120.0 / 180.0 * 3.14159265
-        OFFSET_THRESHOLD = 1.0
-        min_offset = 2.0
-        cur_lane_index = -1
-        count = 0
-        priority_index_set = []
-        priority_id_set = []
-
-
-        # 选择当前车道(找全局规划)
-        # 先找距离处于较小范围内，优先级较高的第一条车道
-        # 如果找不到，找距离最小的一条车道
-        for i in range(len(self.lanes)):
-            abs_offset = abs(self.offset[i])
-            # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
-            if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                    and self.lanes[i].priority == 2 \
-                    and self.after_length[i] > 2:
-                count += 1
-                priority_index_set.append(i)
-                priority_id_set.append(self.lanes[i].id)
-        if count == 0:
-            for i in range(len(self.lanes)):
-                abs_offset = abs(self.offset[i])
-                # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
-                if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-                        and self.lanes[i].priority == 1 \
-                        and self.after_length[i] > 2:
-                    count += 1
-                    priority_index_set.append(i)
-                    priority_id_set.append(self.lanes[i].id)
-        if count == 0:
-            for i in range(len(self.lanes)):
-                abs_offset = abs(self.offset[i])
-                #
-                if self.lanes[i].relation == 1 and abs_offset < min_offset \
-                        and self.after_length[i] > 2:
-                    count = 1
-                    min_offset = abs_offset
-                    priority_index_set[0] = i  # 只有一条
-                    priority_id_set[0] = self.lanes[i].id
-
-        # for i in range(len(self.lanes)):
-        #     abs_offset = abs(self.offset[i])
-        #     abs_dir_diff = abs(self.dir_diff[i])
-        #     # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
-        #     if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-        #             and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority == 2 \
-        #             and self.after_length[i] > 5:
-        #         count += 1
-        #         priority_index_set.append(i)
-        #         priority_id_set.append(self.lanes[i].id)
-        # if count == 0:
-        #     for i in range(len(self.lanes)):
-        #         abs_offset = abs(self.offset[i])
-        #         abs_dir_diff = abs(self.dir_diff[i])
-        #         # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
-        #         if self.lanes[i].relation == 1 and abs_offset < OFFSET_THRESHOLD \
-        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority == 1 \
-        #                 and self.after_length[i] > 5:
-        #             count += 1
-        #             priority_index_set.append(i)
-        #             priority_id_set.append(self.lanes[i].id)
-        # if count == 0:
-        #     for i in range(len(self.lanes)):
-        #         abs_offset = abs(self.offset[i])
-        #         abs_dir_diff = abs(self.dir_diff[i])
-        #         #
-        #         if self.lanes[i].relation == 1 and abs_offset < min_offset \
-        #                 and abs_dir_diff < DIR_THRESHOLD and self.lanes[i].priority > 0 \
-        #                 and self.after_length[i] > 5:
-        #             count = 1
-        #             min_offset = abs_offset
-        #             priority_index_set[0] = i  # 只有一条
-        #             priority_id_set[0] = self.lanes[i].id
-
-        # 对于多条符合要求的 lanes ，选一条(id 最小的一条，来保证连续性）
-
-        if count != 0:
-            min_id = 10000
-            min_id_index = -1
-            for i in range(count):
-                if priority_id_set[i] < min_id:
-                    min_id = priority_id_set[i]
-                    min_id_index = priority_index_set[i]
-            cur_lane_index = min_id_index
-
-        if cur_lane_index != -1:
-            temp_lead_to_id = -1
-            lead_to_index = 0
-            for i in range(len(self.lanes[cur_lane_index].leadToIds)):
-                for j in range(len(self.lanes)):
-                    if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                            and self.lanes[j].priority == 2:
-                        temp_lead_to_id = self.lanes[j].id
-                        lead_to_index = j
-                        break
-                if temp_lead_to_id != -1:
-                    break
-
-            if temp_lead_to_id == -1:
-                for i in range(len(self.lanes[cur_lane_index].leadToIds)):
-                    for j in range(len(self.lanes)):
-                        if self.lanes[j].id == self.lanes[cur_lane_index].leadToIds[i] \
-                                and self.lanes[j].priority == 1:
-                            temp_lead_to_id = self.lanes[j].id
-                            lead_to_index = j
-                            break
-                    if temp_lead_to_id != -1:
-                        break
-
-            # generate and merge current lane
-            for i in range(len(self.lanes[cur_lane_index].points)):
-                self.cur_lane_x.append(self.lanes[cur_lane_index].points[i].x)
-                self.cur_lane_y.append(self.lanes[cur_lane_index].points[i].y)
-            # merge !!!
-            if self.after_length[cur_lane_index] < 10 and temp_lead_to_id != -1:
-                for j in range(len(self.lanes[lead_to_index].points)):
-                    self.cur_lane_x.append(self.lanes[lead_to_index].points[j].x)
-                    self.cur_lane_y.append(self.lanes[lead_to_index].points[j].y)
-
-            self.cur_lane_num = len(self.cur_lane_x)
-            self.cur_lane_id = self.lanes[cur_lane_index].id
-            self.cur_lane_width = self.lanes[cur_lane_index].width
-            # 需要查到如果没有左右车道时 id 是什么
-            left_lane_index = -1
-            right_lane_index = -1
-            for i in range(len(self.lanes)):
-                if self.lanes[i].id == self.lanes[cur_lane_index].leftLaneId:
-                    left_lane_index = i
-                elif self.lanes[i].id == self.lanes[cur_lane_index].rightLaneId:
-                    right_lane_index = i
-            if left_lane_index != -1:
-                self.left_lane_id = self.lanes[left_lane_index].id
-                self.left_lane_width = self.lanes[left_lane_index].width
-            else:
-                self.left_lane_id = -1
-            if right_lane_index != -1:
-                self.right_lane_id = self.lanes[right_lane_index].id
-                self.right_lane_width = self.lanes[right_lane_index].width
-            else:
-                self.right_lane_id = -1
-
-            if self.lanes[cur_lane_index].stopType != 0:
-                stop_line_x = self.lanes[cur_lane_index].nextStop.x
-                stop_line_y = self.lanes[cur_lane_index].nextStop.y
-                self.dist_to_next_stop = math.sqrt(math.pow(stop_line_x - global_pose_data.mapX, 2) + pow(stop_line_y - global_pose_data.mapY, 2))
-                self.next_stop_type = self.lanes[cur_lane_index].stopType
-
-            elif self.lanes[lead_to_index].stopType != 0 and temp_lead_to_id != 0:
-                stop_line_x = self.lanes[lead_to_index].nextStop.x
-                stop_line_y = self.lanes[lead_to_index].nextStop.y
-                dist_section_1 = self.after_length[cur_lane_index]
-                dist_section_2 = math.sqrt(math.pow(stop_line_x - self.lanes[cur_lane_index].points[-1].x, 2) + math.pow(stop_line_y - self.lanes[cur_lane_index].points[-1].y, 2))
-                self.dist_to_next_stop = dist_section_1 + dist_section_2
-                self.next_stop_type = self.lanes[lead_to_index].stopType
-
-            self.dist_to_next_road = self.after_length[cur_lane_index]
-            self.cur_turn_type = self.lanes[cur_lane_index].turn
-            if temp_lead_to_id != 0:
-                self.next_turn_type = self.lanes[lead_to_index].turn
-            self.can_change_left = self.lanes[cur_lane_index].canChangeLeft
-            self.can_change_right = self.lanes[cur_lane_index].canChangeRight
-            self.speed_upper_limit = self.lanes[cur_lane_index].speedUpperLimit
-            self.speed_lower_limit = self.lanes[cur_lane_index].speedLowerLimit
-
-
-            self.cur_priority = self.lanes[cur_lane_index].priority
-
-            temp_index = cur_lane_index
-            for i in range(10):
-                temp_left_id = self.lanes[temp_index].leftLaneId
-                for j in range(len(self.lanes)):
-                    if self.lanes[j].id == temp_left_id:
-                        self.left_priority.append(self.lanes[j].priority)
-                        temp_index = j
-                        break
-                if j == len(self.lanes):
-                    break
-
-            temp_index = cur_lane_index
-            for i in range(10):
-                temp_right_id = self.lanes[temp_index].rightLaneId
-                for j in range(len(self.lanes)):
-                    if self.lanes[j].id == temp_right_id:
-                        self.right_priority.append(self.lanes[j].priority)
-                        temp_index = j
-                        break
-                if j == len(self.lanes):
-                    break
-
-            self.lead_to_priority = []
-
-            for i in range(len(self.lanes[cur_lane_index].leadToIds)):
-                self.lead_to_ids.append(self.lanes[cur_lane_index].leadToIds[i])
-                for j in range(len(self.lanes)):
-                    if self.lanes[cur_lane_index].leadToIds[i] == self.lanes[j].id:
-                        self.lead_to_priority.append(self.lanes[j].priority)
-
-
-            if(self.cur_lane_id != cur_lane_list[-1]):
-                cur_lane_list.append(self.cur_lane_id)
-
-            vehicle_projection = lane_projection(road_data.cur_lane_x, road_data.cur_lane_y, road_data.cur_lane_num, global_pose_data.mapX, global_pose_data.mapY, global_pose_data.mapHeading)
-
-        else:
-            self.cur_lane_id = -1
-
-
 
 def compute_mean(nums, start, end):
     sum = 0

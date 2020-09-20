@@ -12,9 +12,17 @@ from multiprocessing.pool import ThreadPool
 from local_messages.msg import FilteredObstacles
 from local_messages.msg import FilteredObstacle
 from local_messages.msg import Decision
-from geometry_msgs import Point32
+from geometry_msgs.msg import Point32
 
-
+from local_messages.msg import Road
+from local_messages.msg import Lane
+from local_messages.msg import GlobalPose
+from local_messages.msg import Obstacles
+from local_messages.msg import Obstacle
+from local_messages.msg import Lights
+from local_messages.msg import Light
+from local_messages.msg import Signs
+from local_messages.msg import Sign
 
 
 # import all the msg and srv files
@@ -204,6 +212,69 @@ FSM:
 map:
     roadCurve
 '''
+
+
+def road_callback(road_msg):
+    global lane_list
+    road_data = road_msg
+    lane_list = {} # {'id':'lane'}
+    for k in range(len(road_data.lanes)):
+        lane_list[road_data.lanes[k].id] = road_data.lanes[k]
+    rospy.loginfo('map_data_updated')
+
+def global_pose_callback(global_pose_msg):
+    global global_pose_data
+    global_pose_data = global_pose_msg
+    rospy.loginfo('pose_data_updated')
+
+def lights_callback(lights_msg):
+    global lights_data
+    lights_data = lights_msg
+    rospy.loginfo('lights_data_updated')
+
+def signs_callback(signs_msg):
+    global signs_data
+    signs_data = signs_msg
+    rospy.loginfo('signs_data_updated')
+
+def obstacles_callback(obstacles_msg):
+    global obstacles_list
+    # record road data of the current moment.
+    temp_lane_info = lane_list
+    # reset the if_tracked tag
+    for k in obstacles_list.keys():
+        obstacles_list[k].if_tracked = 0
+
+    for i in range(len(obstacles_msg.obstacles)):
+        # update old obstacles
+        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+        # generate new obstacle
+        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
+
+    for k in obstacles_list.keys():
+        if obstacles_list[k].if_tracked == 0:
+            del obstacles_list[k]
+    rospy.loginfo('obstacles_data_updated')
+
+
+def listener():
+    # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
+    rospy.init_node('listener', anonymous = True)
+
+    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
+    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
+    rospy.Subscriber("map_road", Road, road_callback)
+    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback)
+
+    # spin() simply keeps python from exiting until this node is stopped
+    # rospy.spin()
+
+    # 只 spin 有 callback 的语句
 
 
 # update lane information, triggered when the global pose is updated.
@@ -578,28 +649,6 @@ class TrafficLight:
         self.position_x = 0
         self.position_y = 0
 
-
-class DecisionOutput:
-    def __init__(self):
-        # The current scenario of the vehicle.
-        self.scenario = 0
-        # int32 REFPATHFOLLOW = 1
-        # int32 EMERGENCYBRAKE = 2
-        # int32 PARK = 3
-
-        # Sub-behavior: extracts the obstacles of interest, contains the predicted motion states of the obstacles and the interactive behaviors towards the obstacles.
-        self.filteredObstacles = FilteredObstacles()
-
-        # The speed boundary in the present situation.
-        self.speedUpperLimit = 0
-        self.speedLowerLimit = 0
-
-        # The reference path in the present situation, it can be the target lane or the center line of the boundaries.
-        # The target point is the last point in this reference path.
-        self.refPath = []
-
-        #Selected parking lot information
-        self.SelectedParkingLot = []
 
 #############
 # FilteredObstacles.msg
@@ -1446,21 +1495,39 @@ def re_global_planning_decider():
     pass
 
 
-def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot):
+def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot, reference_gear):
     message = Decision()
     message.scenario = scenario
     message.speedUpperLimit = speed_upper_limit
     message.speedLowerLimit = speed_lower_limit
     message.refPath = reference_path
     message.selectedParkingLot = selected_parking_lot
+    message.refGear = reference_gear
+    filtered_obstacles_list = []
     for obstacle in filtered_obstacles:
         filtered_obstacle = FilteredObstacle()
         filtered_obstacle.type = obstacle.type
         filtered_obstacle.width = obstacle.width
         filtered_obstacle.length = obstacle.length
-
-        filtered_obstacle.predictedCenterPointsTrajectory =
-    pass
+        filtered_obstacle.isMoving = obstacle.is_moving
+        filtered_obstacle.decision = obstacle.sub_decision
+        filtered_obstacle.safeDistance = obstacle.safe_distance
+        for point in obstacle.predicted_center_points:
+            temp_point = Point32()
+            temp_point.x = point[0]
+            temp_point.y = point[1]
+            temp_point.z = 0
+            filtered_obstacle.predictedCenterPointsTrajectory.append(temp_point)
+        for heading in obstacle.predicted_headings:
+            temp_heading = Point32()
+            temp_heading.x = heading[0]
+            temp_heading.y = heading[1]
+            temp_heading.z = 0
+            filtered_obstacle.predictedHeadings.append(temp_heading)
+        filtered_obstacles_list.append(filtered_obstacle)
+    message.filteredObstacles = filtered_obstacles_list
+    decision_msg_pub = rospy.Publisher('decision_behavior', Decision)
+    decision_msg_pub.publish(message)
 
 
 
@@ -1935,20 +2002,20 @@ class Await(smach.State):
     def execute(self, user_data):
         pass
 
-def re_global_planning():
-    rospy.init_node('greetings_client')
-    #   等待有可用的服务"greetings"
-    rospy.wait_for_service("greetings")
-    try:
-        # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
-        greetings_client = rospy.ServiceProxy("greetings", Greeting)
-        # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
-        # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
-        # resp = greetings_client("HAN",20)
-        resp = greetings_client.call("HAN", 20)
-        rospy.loginfo("Message From server:%s" % resp.feedback)
-    except rospy.ServiceException as e:
-        rospy.logwarn("Service call failed: %s" % e)
+# def re_global_planning():
+#     rospy.init_node('greetings_client')
+#     #   等待有可用的服务"greetings"
+#     rospy.wait_for_service("greetings")
+#     try:
+#         # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
+#         greetings_client = rospy.ServiceProxy("greetings", Greeting)
+#         # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
+#         # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
+#         # resp = greetings_client("HAN",20)
+#         resp = greetings_client.call("HAN", 20)
+#         rospy.loginfo("Message From server:%s" % resp.feedback)
+#     except rospy.ServiceException as e:
+#         rospy.logwarn("Service call failed: %s" % e)
 
 
 def main():
