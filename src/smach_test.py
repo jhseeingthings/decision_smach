@@ -342,22 +342,22 @@ class ObstaclesOfInterest:
         self.obstacle_id = 0
         self.decision = 0
 
-class GlobalPose:
-    def __init__(self):
+# class GlobalPose:
+#     def __init__(self):
+#
+#         # X in the map coordinate system. [m]
+#         self.mapX = 0
+#         # Y in the map coordinate system. [m]
+#         self.mapY = 0
+#         # heading angle in the map coordinate system. [rad]
+#         self.mapHeading = 0
+#         # Forward velocity. [m s^(-1)]
+#         self.mVf = 0
+#         # Lateral velocity. [m s^(-1)]
+#         self.mVl = 0
 
-        # X in the map coordinate system. [m]
-        self.mapX = 0
-        # Y in the map coordinate system. [m]
-        self.mapY = 0
-        # heading angle in the map coordinate system. [rad]
-        self.mapHeading = 0
-        # Forward velocity. [m s^(-1)]
-        self.mVf = 0
-        # Lateral velocity. [m s^(-1)]
-        self.mVl = 0
 
-
-class Obstacle:
+class DecisionObstacle:
     def __init__(self, obstacle_msg, lane_list):
         self.id = obstacle_msg.id
         self.type = 0
@@ -653,40 +653,40 @@ class TrafficLight:
         self.position_y = 0
 
 
-#############
-# FilteredObstacles.msg
-# This message extracts the obstacles that we should notice during the planning period. It provides the predicted motion states of the obstacles and the interactive behaviors towards the obstacles.
-class FilteredObstacles:
-    def __init__(self):
-        # The type of the obstacle.
-        # The value could be VEHICLE,  BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
-        self.type = ''
-
-        # The size of the obstacle.
-        # The length should be the distance in the direction of heading.
-        # The width should be the distance perpendicular to the direction of heading.
-        self.length = 0
-        self.width = 0
-
-        # The predicted trajectory of the obstacle
-        self.predictedCenterPointsTrajectory = []
-
-        # The predicted heading angle of the obstacle.
-        self.predictedHeadings = []
-
-        # Is the obstacle static or dynamic?
-        # True for a dynamic obstacle.
-        # False for a static obstacle.
-        self.isMoving = True
-
-        # The reaction towards the obstacle.
-        self.decision = 0
-        # int32 OVERTAKE=1
-        # int32 GIVEWAY=2
-        # int32 BYPASS=3
-
-        # A safe distance to be kept from the obstacle.
-        self.safeDistance = 0
+# #############
+# # FilteredObstacles.msg
+# # This message extracts the obstacles that we should notice during the planning period. It provides the predicted motion states of the obstacles and the interactive behaviors towards the obstacles.
+# class FilteredObstacles:
+#     def __init__(self):
+#         # The type of the obstacle.
+#         # The value could be VEHICLE,  BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
+#         self.type = ''
+#
+#         # The size of the obstacle.
+#         # The length should be the distance in the direction of heading.
+#         # The width should be the distance perpendicular to the direction of heading.
+#         self.length = 0
+#         self.width = 0
+#
+#         # The predicted trajectory of the obstacle
+#         self.predictedCenterPointsTrajectory = []
+#
+#         # The predicted heading angle of the obstacle.
+#         self.predictedHeadings = []
+#
+#         # Is the obstacle static or dynamic?
+#         # True for a dynamic obstacle.
+#         # False for a static obstacle.
+#         self.isMoving = True
+#
+#         # The reaction towards the obstacle.
+#         self.decision = 0
+#         # int32 OVERTAKE=1
+#         # int32 GIVEWAY=2
+#         # int32 BYPASS=3
+#
+#         # A safe distance to be kept from the obstacle.
+#         self.safeDistance = 0
 
 
 def compute_mean(nums, start, end):

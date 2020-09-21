@@ -291,6 +291,7 @@ def userdata_update(user_data):
     # user_data.update(new_data)
     rospy.loginfo('updating----')
     # global lane_list
+
     lane_info = lane_list
     rospy.loginfo(lane_info.keys())
     return lane_info
