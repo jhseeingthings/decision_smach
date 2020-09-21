@@ -76,6 +76,9 @@ TIME_SPACE = 1
 MIN_DISTANCE_GAP = 5 # One car length
 
 
+decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
+
+
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw = 0.0, type = 0):
     """
     左负右正，cur_yaw 为弧度值
@@ -265,11 +268,11 @@ def listener():
     rospy.init_node('listener', anonymous = True)
 
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
-    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback)
-    rospy.Subscriber("map_road", Road, road_callback)
-    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback)
-    rospy.Subscriber("traffic_lights", Lights, lights_callback)
-    rospy.Subscriber("traffic_signs", Signs, signs_callback)
+    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_road", Road, road_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("fused_obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1526,7 +1529,8 @@ def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_l
             filtered_obstacle.predictedHeadings.append(temp_heading)
         filtered_obstacles_list.append(filtered_obstacle)
     message.filteredObstacles = filtered_obstacles_list
-    decision_msg_pub = rospy.Publisher('decision_behavior', Decision)
+
+    rospy.loginfo("output message updated at %s" % rospy.get_time())
     decision_msg_pub.publish(message)
 
 
