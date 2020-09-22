@@ -55,7 +55,6 @@ GIVE_WAY = 2
 AVOID_COLLISION = 3
 
 global_pose_data = None
-lane_info_processed = None
 lane_list = {}
 obstacles_list = {}
 signs_data = None
@@ -65,7 +64,8 @@ lights_data = None
 PREDICTION_DURATION = 5
 PREDICTION_PERIOD = 0.1
 
-
+SPEED_UPPER_LIMIT_DEFAULT = 30
+SPEED_LOWER_LIMIT_DEFAULT = 0
 
 TIME_ACC = 1
 #is computed as the time for accelerating from zero up to speed in the destination lane using the same conservative acceleration.
@@ -229,7 +229,7 @@ def road_callback(road_msg):
 def global_pose_callback(global_pose_msg):
     global global_pose_data
     global_pose_data = global_pose_msg
-    rospy.loginfo('pose_data_updated')
+    # rospy.loginfo('pose_data_updated')
 
 def lights_callback(lights_msg):
     global lights_data
@@ -255,7 +255,7 @@ def obstacles_callback(obstacles_msg):
             obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
         # generate new obstacle
         if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
-            temp_obstacle = Obstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            temp_obstacle = DecisionObstacle(obstacles_msg.obstacles[i], temp_lane_info)
             obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
 
     for k in obstacles_list.keys():
@@ -266,7 +266,7 @@ def obstacles_callback(obstacles_msg):
 
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
-    rospy.init_node('listener', anonymous = True)
+    # rospy.init_node('listener', anonymous = True)
 
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
     rospy.Subscriber("global_pose", GlobalPose, global_pose_callback, queue_size=1, buff_size=5000000)
@@ -285,6 +285,7 @@ def listener():
 # 记录关于当前车道的动态信息
 class CurrentLaneInfo:
     def __init__(self):
+        # id 为正数说明又车道
         self.cur_lane_id = -1
         self.left_lane_id = -1
         self.right_lane_id = -1
@@ -338,10 +339,6 @@ class LanesOfInterest:
         self.end_s = 0
         self.action_time = 0
 
-class ObstaclesOfInterest:
-    def __init__(self):
-        self.obstacle_id = 0
-        self.decision = 0
 
 # class GlobalPose:
 #     def __init__(self):
@@ -745,9 +742,13 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
     ref_path = []
     temp_path_length = 0
     target_lane_num = len(lane_list[target_lane_id].points)
-    next_lane_num = len(lane_list[next_lane_id].points)
     target_lane_index = available_lanes[target_lane_id].projection_index
-    next_lane_index = available_lanes[next_lane_id].projection_index
+
+    if next_lane_id != -1:
+        next_lane_num = len(lane_list[next_lane_id].points)
+        next_lane_index = available_lanes[next_lane_id].projection_index
+    else:
+        next_lane_num, next_lane_index = 0, 0
 
     # 取第一段
     ref_path.append(lane_list[target_lane_id].points[target_lane_index])
@@ -759,7 +760,12 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
         ratio = target_length / temp_seg_length
         x = available_lanes[target_lane_id].projection_x + ratio * temp_seg_vec[0]
         y = available_lanes[target_lane_id].projection_y + ratio * temp_seg_vec[1]
-        ref_path.append([x,y,0])
+        temp_point = Point32()
+        temp_point.x = x
+        temp_point.y = y
+        temp_point.z = 0
+        # ref_path.append([x, y, 0])
+        ref_path.append(temp_point)
         temp_path_length += target_length
     else:
         temp_path_length += temp_seg_length
@@ -778,14 +784,19 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
                 ratio = target_seg_length / temp_seg_length
                 x = lane_list[target_lane_id].points[target_lane_index].x + ratio * temp_seg_vec[0]
                 y = lane_list[target_lane_id].points[target_lane_index].y + ratio * temp_seg_vec[1]
-                ref_path.append([x, y, 0])
+                temp_point = Point32()
+                temp_point.x = x
+                temp_point.y = y
+                temp_point.z = 0
+                # ref_path.append([x, y, 0])
+                ref_path.append(temp_point)
                 temp_path_length += target_seg_length
                 break
             else:
                 temp_path_length += temp_seg_length
                 target_lane_index += 1
                 ref_path.append(lane_list[target_lane_id].points[target_lane_index])
-        elif next_lane_index < next_lane_num - 1:
+        elif next_lane_index < next_lane_num - 1 and next_lane_num != 0:
             # 从下一条目标车道上选点
             temp_seg_vec = np.array([lane_list[next_lane_id].points[next_lane_index + 1].x -
                                      lane_list[next_lane_id].points[next_lane_index].x,
@@ -797,7 +808,12 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
                 ratio = target_seg_length / temp_seg_length
                 x = lane_list[next_lane_id].points[next_lane_index].x + ratio * temp_seg_vec[0]
                 y = lane_list[next_lane_id].points[next_lane_index].y + ratio * temp_seg_vec[1]
-                ref_path.append([x, y, 0])
+                temp_point = Point32()
+                temp_point.x = x
+                temp_point.y = y
+                temp_point.z = 0
+                # ref_path.append([x, y, 0])
+                ref_path.append(temp_point)
                 temp_path_length += target_seg_length
                 break
             else:
@@ -808,13 +824,12 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
     return ref_path
 
 
-
 def desired_safety_distance(velocity):
     return max(1, velocity * 3.6 / 10) * MIN_DISTANCE_GAP
 
+
 def user_data_updater(user_data):
     rospy.loginfo('updating data------')
-    user_data.lane_info_processed = copy.deepcopy(lane_info_processed)
     user_data.lane_list = copy.deepcopy(lane_list)
     user_data.pose_data = copy.deepcopy(global_pose_data)
     user_data.obstacles_list = copy.deepcopy(obstacles_list)
@@ -833,6 +848,7 @@ def current_lane_selector(lane_list, pose_data):
     available_lanes = {}
     id_list, offset, dir_diff, before_length, after_length = [],[],[],[],[]
     project_x, project_y, project_index = [],[],[]
+    rospy.loginfo(lane_list.keys())
     for lane_index in lane_list.keys():
         temp_lane = lane_list[lane_index]
         id_list.append(lane_index)
@@ -876,9 +892,9 @@ def current_lane_selector(lane_list, pose_data):
     for i in range(len(id_list)):
         abs_offset = abs(offset[i])
         # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
-        if lane_list[id_list[i]].relation == 1 and abs_offset < OFFSET_THRESHOLD \
+        if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
-                and after_length[i] > 2:
+                and after_length[i] > 0.5:
             count += 1
             priority_index_set.append(i)
             priority_id_set.append(id_list[i])
@@ -886,9 +902,9 @@ def current_lane_selector(lane_list, pose_data):
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
             # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
-            if lane_list[id_list[i]].relation == 1 and abs_offset < OFFSET_THRESHOLD \
+            if abs_offset < OFFSET_THRESHOLD \
                     and lane_list[id_list[i]].priority == 1 \
-                    and after_length[i] > 2:
+                    and after_length[i] > 0.5:
                 count += 1
                 priority_index_set.append(i)
                 priority_id_set.append(id_list[i])
@@ -896,7 +912,7 @@ def current_lane_selector(lane_list, pose_data):
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
             #
-            if lane_list[id_list[i]].relation == 1 and abs_offset < min_offset \
+            if abs_offset < min_offset \
                     and after_length[i] > 2:
                 count = 1
                 min_offset = abs_offset
@@ -936,7 +952,7 @@ def current_lane_selector(lane_list, pose_data):
             stop_line_x = lane_list[cur_lane_id].nextStop.x
             stop_line_y = lane_list[cur_lane_id].nextStop.y
             cur_lane_info.dist_to_next_stop = math.sqrt(
-                math.pow(stop_line_x - global_pose_data.mapX, 2) + pow(stop_line_y - global_pose_data.mapY, 2))
+                math.pow(stop_line_x - pose_data.mapX, 2) + pow(stop_line_y - pose_data.mapY, 2))
             cur_lane_info.next_stop_type = lane_list[cur_lane_id].stopType
 
         cur_lane_info.dist_to_next_road = after_length[cur_lane_index]
@@ -1056,7 +1072,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                         if longitudinal_max > rear_drivable_s:
                             rear_drivable_s = longitudinal_max
 
-                if lane_index == lane_info_processed.cur_lane_id:
+                if lane_index == cur_lane_info.cur_lane_id:
                     if not(longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + LANE_CHANGE_BASE_LENGTH)):
                         if not(lateral_max < -3/2*temp_lane.width or lateral_min > left_margin):
                             temp_can_change_left = 0
@@ -1173,18 +1189,13 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         #     available_lanes[lane_index] = temp_lane
 
 
-def target_lane_selector(lane_list, pose_data, obstacles_list, scenario, cur_lane_info, available_lanes):
+def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, available_lanes):
     """
 
-    :param lane_info_processed:
-    :param lane_list:
-    :param pose_data:
-    :return: target lane id  -1 为没有找到目标车道
     """
     target_lane_id = -1
     # 当前没有目标车道或者当前车道优先级不为正,为了切入车道，只需在场景开始时选择一次
     if scenario == "merge":
-    # if lane_info_processed.cur_lane_id == -1 or lane_info_processed.cur_priority <= 0:
     # 暂时先考虑最近的车道,需满足有足够的行驶距离，并且优先级为正
         lane_id_list = []
         lane_offset_list = []
@@ -1206,8 +1217,18 @@ def target_lane_selector(lane_list, pose_data, obstacles_list, scenario, cur_lan
         lane_reward = []
         lane_priority = []
         can_change_constraint = [1, cur_lane_info.can_change_left, cur_lane_info.can_change_right]
-        left_priority = cur_lane_info.left_priority[0]
-        right_priority = cur_lane_info.right_priority[0]
+        # rospy.loginfo(cur_lane_info.left_priority)
+        # rospy.loginfo(cur_lane_info.right_priority)
+        # rospy.loginfo(cur_lane_info.left_lane_id)
+        # rospy.loginfo(cur_lane_info.right_lane_id)
+        try:
+            left_priority = cur_lane_info.left_priority[0]
+        except:
+            left_priority = 0
+        try:
+            right_priority = cur_lane_info.right_priority[0]
+        except:
+            right_priority = 0
         left_found_2, right_found_2 = 0, 0
         left_index, right_index = 11, 11
         for i in range(10):
@@ -1230,18 +1251,22 @@ def target_lane_selector(lane_list, pose_data, obstacles_list, scenario, cur_lan
             right_priority = 2
 
         lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
-
+        rospy.loginfo(lane_priority)
         for i in range(len(selectable_lanes)):
-            efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / lane_list[selectable_lanes[i]].speedUpperLimit
-            free_space = available_lanes[selectable_lanes[i]].closest_moving_object / available_lanes[selectable_lanes[i]].after_length
-            lane_reward.append((0.8 * efficiency + 0.2 * free_space)*lane_priority[i]*can_change_constraint[i])
-
+            if selectable_lanes[i] > 0:
+                efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / lane_list[selectable_lanes[i]].speedUpperLimit
+                free_space = available_lanes[selectable_lanes[i]].closest_moving_object / available_lanes[selectable_lanes[i]].after_length
+                lane_reward.append((0.8 * efficiency + 0.2 * free_space)*lane_priority[i]*can_change_constraint[i])
+                # rospy.loginfo(available_lanes[selectable_lanes[i]].closest_moving_object)
+            else:
+                lane_reward.append(0)
+        rospy.loginfo(lane_reward)
         # 先判断是否需要强制性变道到优先级高的车道
         if cur_lane_info.dist_to_next_road < 100:
             pass
         # 先判断当前车道的行驶效率
         else:
-            if available_lanes[selectable_lanes[0]].driving_efficiency > 0.6 * lane_list[cur_lane_info.cur_lane_id].speedUpperLimit:
+            if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * lane_list[cur_lane_info.cur_lane_id].speedUpperLimit:
                 target_lane_id = cur_lane_info.cur_lane_id
             else:
                 if lane_reward[1] > lane_reward[0] * 1.2 and lane_reward[2] > lane_reward[0] * 1.2:
@@ -1267,7 +1292,10 @@ def target_lane_selector(lane_list, pose_data, obstacles_list, scenario, cur_lan
     # 如果路走完了,选择下一条目标车道
     # 选择标准：先选优先级高的，同优先级的车道里选择可行长度大的。
     next_lane_id = -1
-    desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, pose_data.mVf * 3)
+    speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
+    if cur_lane_info.cur_lane_id > 0:
+        speed_upper_limit = min(speed_upper_limit, lane_list[cur_lane_info.cur_lane_id].speedUpperLimit)
+    desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
     if available_lanes[target_lane_id].after_length < desired_length:
         next_lane_id = -1
         temp_drivable_length = 0
@@ -1283,6 +1311,8 @@ def target_lane_selector(lane_list, pose_data, obstacles_list, scenario, cur_lan
                     next_lane_id = index
                     temp_drivable_length = available_lanes[index].front_drivable_length
                     next_lane_found = 1
+    rospy.loginfo("target lane id %d" % target_lane_id)
+    rospy.loginfo("next target lane id %d" % next_lane_id)
 
     return target_lane_id, next_lane_id
 
@@ -1400,7 +1430,6 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
     :param obstacles_list:
     :return:
     """
-    obstacles_of_interest = {}
     is_ready = True
     for lane_index in lanes_of_interest.keys():
         loi_info = lanes_of_interest[lane_index]
@@ -1415,14 +1444,12 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
                         if temp_time < min_time:
                             min_time = temp_time
                         else:
-                            #  其余属于感兴趣区域内的同向动态障碍物，小决策置超车
-                            obstacle_of_interest = ObstaclesOfInterest()
-                            obstacle_of_interest.obstacle_id = obstacle_index
-                            obstacle_of_interest.decision = 1
-                            obstacles_of_interest[obstacle_index] = obstacle_of_interest
+                            # 其余属于感兴趣区域内的同向动态障碍物，小决策置超车
+                            obstacle_info.sub_decision = 1
+                            obstacle_info.safe_distance = MIN_DISTANCE_GAP
         if min_time < action_time:
             is_ready = False
-    return is_ready, obstacles_of_interest
+    return is_ready, obstacles_list
 
 
 def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_interest):
@@ -1489,8 +1516,22 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_i
     pass
 
 
-def speed_limit_decider():
+def obstacle_of_interest_selector():
     pass
+
+
+def speed_limit_decider(lane_list, current_lane_info, target_lane_id, action_decelerate = -1, merge_decelerate = -1):
+    # speed_upper_limit_default = 30
+    # speed_lower_limit_default = 0
+    speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
+    speed_lower_limit = SPEED_LOWER_LIMIT_DEFAULT
+    if current_lane_info.cur_lane_id > 0:
+        speed_upper_limit = min(speed_upper_limit, lane_list[current_lane_info.cur_lane_id].speedUpperLimit)
+        speed_lower_limit = max(speed_lower_limit, lane_list[current_lane_info.cur_lane_id].speedLowerLimit)
+    if target_lane_id > 0:
+        speed_upper_limit = min(speed_upper_limit, lane_list[target_lane_id].speedUpperLimit)
+        speed_lower_limit = max(speed_lower_limit, lane_list[target_lane_id].speedLowerLimit)
+    return speed_upper_limit, speed_lower_limit
 
 
 def re_global_planning_decider():
@@ -1540,8 +1581,8 @@ def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_l
 class StartupCheck(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['ready'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data', 'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data', 'lights_data', 'pose_data'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'])
     def execute(self, user_data):
         # reset the output
@@ -1550,7 +1591,8 @@ class StartupCheck(smach.State):
             user_data_updater(user_data)
             # check every input
             input_status = 1
-            if input_status == 0:
+            if user_data.lane_list == {} or user_data.pose_data is None:
+                print('nothing from input')
                 continue
             # check vehicle status
             vehicle_status = 1
@@ -1561,23 +1603,27 @@ class StartupCheck(smach.State):
 class Startup(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['in_lane_driving', 'merge_and_across'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
     def execute(self, user_data):
         # 换挡，
-
-        user_data_updater(user_data)
-        if lane_info_processed.cur_lane_id == -1:
+        while(1):
+            rospy.sleep(1)
+            user_data_updater(user_data)
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+            rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
+            rospy.loginfo('current lane priority %d' % current_lane_info.cur_priority)
+            if current_lane_info.cur_lane_id == -1:
+                pass
+            if current_lane_info.cur_priority <= 0:
+                return 'merge_and_across'
+            else:
+                return 'in_lane_driving'
             pass
-        if lane_info_processed.cur_priority <= 0:
-            return 'merge_and_across'
-        else:
-            return 'in_lane_driving'
-        pass
 
 #########################################
 # IN LANE DRIVING
@@ -1585,25 +1631,34 @@ class Startup(smach.State):
 class InLaneDriving(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
-        while(1):
+        while not rospy.is_shutdown():
             rospy.sleep(1)
+            rospy.loginfo(rospy.get_time())
             user_data_updater(user_data)
+
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data, user_data.obstacles_list, current_lane_info, available_lanes)
+            rospy.loginfo(available_lanes[current_lane_info.cur_lane_id].front_drivable_length)
+
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, user_data.obstacles_list, 'lane_follow', current_lane_info, available_lanes)
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow', current_lane_info, available_lanes)
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info, target_lane_id)
+            desired_length = min(available_lanes[target_lane_id].front_drivable_length, max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3))
+            rospy.loginfo(desired_length)
             if target_lane_id == current_lane_info.cur_lane_id:
-                points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes, )
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes, desired_length)
+                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot=[], reference_gear=1)
             elif target_lane_id != current_lane_info.left_lane_id:
                 return 'LANE_CHANGE_PREPARING'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            pass
+            rospy.loginfo(rospy.get_time())
 
 class LaneChangePreparing(smach.State):
     """
@@ -1614,9 +1669,9 @@ class LaneChangePreparing(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['cancel_intention', 'ready_to_change_lane'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
@@ -1629,9 +1684,9 @@ class LaneChanging(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['lane_change_completed', 'lane_change_cancelled'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
@@ -1647,9 +1702,9 @@ class FindRecoverySolution(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['need_to_change_lane', 'back_to_normal'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
@@ -1665,9 +1720,9 @@ class LaneChangePreparingErrorRecovery(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['cancel_intention', 'ready_to_change_lane'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
@@ -1680,9 +1735,9 @@ class LaneChangingErrorRecovery(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['lane_change_completed', 'lane_change_cancelled'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
     def execute(self, user_data):
@@ -1695,9 +1750,9 @@ class LaneChangingErrorRecovery(smach.State):
 class ApproachIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['with_lights', 'without_lights'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1707,9 +1762,9 @@ class ApproachIntersection(smach.State):
 class CreepToIntersectionWithLights(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['enter'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1719,9 +1774,9 @@ class CreepToIntersectionWithLights(smach.State):
 class CreepToIntersectionWithoutLights(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['enter'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1731,9 +1786,9 @@ class CreepToIntersectionWithoutLights(smach.State):
 class EnterIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['pass'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1743,9 +1798,9 @@ class EnterIntersection(smach.State):
 class PassIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1761,9 +1816,9 @@ class CreepForOpportunity(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['ready'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1776,9 +1831,9 @@ class ExecuteMerge(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded', 'break'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1791,9 +1846,9 @@ class YieldBreak(smach.State):
     """
     def __init__(self):
         smach.State.__init__(self, outcomes = ['continue'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1806,9 +1861,9 @@ class YieldBreak(smach.State):
 class DriveAlongLane(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['enter_parking_zone', 'lane_end'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1818,9 +1873,9 @@ class DriveAlongLane(smach.State):
 class SelectParkingSpot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['have_empty_spot', 'no_emtpy_spot'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1830,9 +1885,9 @@ class SelectParkingSpot(smach.State):
 class DriveAndStopInFront(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['finished'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1842,9 +1897,9 @@ class DriveAndStopInFront(smach.State):
 class ExecutePark(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded', 'failed'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1854,9 +1909,9 @@ class ExecutePark(smach.State):
 class PoseCheck(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['okay', 'need_to_adjust'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1866,9 +1921,9 @@ class PoseCheck(smach.State):
 class RePark(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1878,9 +1933,9 @@ class RePark(smach.State):
 class AwaitMission(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['continue'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1890,9 +1945,9 @@ class AwaitMission(smach.State):
 class MarkParkingSpot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1902,9 +1957,9 @@ class MarkParkingSpot(smach.State):
 class ReturnToLane(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1914,9 +1969,9 @@ class ReturnToLane(smach.State):
 class ReGlobalPlan(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['continue', 'need_to_turn_around'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1926,9 +1981,9 @@ class ReGlobalPlan(smach.State):
 class TurnAround(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded', 'failed'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1938,9 +1993,9 @@ class TurnAround(smach.State):
 class Reverse(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['okay_to_turn_around'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1953,9 +2008,9 @@ class Reverse(smach.State):
 class ConditionJudge(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['satisfied'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1965,9 +2020,9 @@ class ConditionJudge(smach.State):
 class StopImmediately(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['succeeded'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1980,9 +2035,9 @@ class StopImmediately(smach.State):
 class EmergencyBrake(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['brakeOn', 'brakeOff'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -1993,9 +2048,9 @@ class EmergencyBrake(smach.State):
 class Await(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes = ['continue'],
-                             input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_data', 'pose_data'],
-                             output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                           'lights_data', 'pose_data']
                              )
 
@@ -2021,9 +2076,10 @@ class Await(smach.State):
 def main():
     rospy.init_node('decision_smach')
 
+    listener()
+    
     # Create the top level SMACH state machine
     sm_top = smach.StateMachine(outcomes=[])
-    sm_top.userdata.lane_info_processed = None
     sm_top.userdata.lane_list = {}
     sm_top.userdata.obstacles_list = {}
     sm_top.userdata.signs_data = None
@@ -2035,9 +2091,9 @@ def main():
 
         # Create the sub SMACH state machine
         sm_con = smach.Concurrence(outcomes=['outcome5'], default_outcome='outcome5',
-                                   input_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                   input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                                'lights_data', 'pose_data'],
-                                   output_keys=['lane_info_processed', 'lane_list', 'obstacles_list', 'signs_data',
+                                   output_keys=['lane_list', 'obstacles_list', 'signs_data',
                                                 'lights_data', 'pose_data']
                                    )
         # {'outcome5':{'FOO': 'outcome2','BAR': 'outcome1'}}表示 FOO 和 BAR 输出都要满足条件才会输出 outcome5
@@ -2045,19 +2101,19 @@ def main():
         # Open the container
         with sm_con:
             sm_con_scenario = smach.StateMachine(outcomes=['outcome4'],
-                                                 input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+                                                 input_keys=['lane_list', 'obstacles_list',
                                                              'signs_data', 'lights_data', 'pose_data'],
-                                                 output_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+                                                 output_keys=['lane_list', 'obstacles_list',
                                                               'signs_data',
                                                               'lights_data', 'pose_data']
                                                  )
 
             with sm_con_scenario:
                 sm_scenario_startup = smach.StateMachine(outcomes=['in_lane_driving', 'merge_and_across'],
-                                                         input_keys=['lane_info_processed', 'lane_list',
+                                                         input_keys=['lane_list',
                                                                      'obstacles_list', 'signs_data', 'lights_data',
                                                                      'pose_data'],
-                                                         output_keys=['lane_info_processed', 'lane_list',
+                                                         output_keys=['lane_list',
                                                                       'obstacles_list', 'signs_data',
                                                                       'lights_data', 'pose_data']
                                                          )
@@ -2069,10 +2125,10 @@ def main():
                                                                                     'merge_and_across':'MERGE_AND_ACROSS'})
 
                 sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across'],
-                                                             input_keys=['lane_info_processed', 'lane_list',
+                                                             input_keys=['lane_list',
                                                                          'obstacles_list', 'signs_data', 'lights_data',
                                                                          'pose_data'],
-                                                             output_keys=['lane_info_processed', 'lane_list',
+                                                             output_keys=['lane_list',
                                                                           'obstacles_list', 'signs_data',
                                                                           'lights_data', 'pose_data']
                                                              )
@@ -2089,13 +2145,11 @@ def main():
                                            transitions={'lane_change_completed': 'IN_LANE_DRIVING',
                                                         'lane_change_cancelled': 'LANE_CHANGE_PREPARING'})
                     sm_scenario_lane_follow_error_recovery = smach.StateMachine(outcomes=['back_to_normal'],
-                                                                                input_keys=['lane_info_processed',
-                                                                                            'lane_list',
+                                                                                input_keys=['lane_list',
                                                                                             'obstacles_list',
                                                                                             'signs_data', 'lights_data',
                                                                                             'pose_data'],
-                                                                                output_keys=['lane_info_processed',
-                                                                                             'lane_list',
+                                                                                output_keys=['lane_list',
                                                                                              'obstacles_list',
                                                                                              'signs_data',
                                                                                              'lights_data', 'pose_data']
@@ -2117,10 +2171,10 @@ def main():
                                                                                             'merge_and_across': 'MERGE_AND_ACROSS'})
 
                 sm_scenario_intersection = smach.StateMachine(outcomes=['succeeded'],
-                                                              input_keys=['lane_info_processed', 'lane_list',
+                                                              input_keys=['lane_list',
                                                                           'obstacles_list', 'signs_data', 'lights_data',
                                                                           'pose_data'],
-                                                              output_keys=['lane_info_processed', 'lane_list',
+                                                              output_keys=['lane_list',
                                                                            'obstacles_list', 'signs_data',
                                                                            'lights_data', 'pose_data']
                                                               )
@@ -2140,9 +2194,9 @@ def main():
                                        transitions={'succeeded': 'LANE_FOLLOW'})
 
                 sm_scenario_merge = smach.StateMachine(outcomes=['succeeded'],
-                                                       input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+                                                       input_keys=['lane_list', 'obstacles_list',
                                                                    'signs_data', 'lights_data', 'pose_data'],
-                                                       output_keys=['lane_info_processed', 'lane_list',
+                                                       output_keys=['lane_list',
                                                                     'obstacles_list', 'signs_data',
                                                                     'lights_data', 'pose_data']
                                                        )
@@ -2155,9 +2209,9 @@ def main():
                 smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW'})
 
                 sm_scenario_park = smach.StateMachine(outcomes=['mission_continue'],
-                                                      input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+                                                      input_keys=['lane_list', 'obstacles_list',
                                                                   'signs_data', 'lights_data', 'pose_data'],
-                                                      output_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+                                                      output_keys=['lane_list', 'obstacles_list',
                                                                    'signs_data',
                                                                    'lights_data', 'pose_data']
                                                       )
@@ -2197,9 +2251,9 @@ def main():
             smach.Concurrence.add('SCENARIO_MANAGER', sm_con_scenario)
 
             # sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'],
-            #                                            input_keys=['lane_info_processed', 'lane_list', 'obstacles_list',
+            #                                            input_keys=['lane_list', 'obstacles_list',
             #                                                        'signs_data', 'lights_data', 'pose_data'],
-            #                                            output_keys=['lane_info_processed', 'lane_list',
+            #                                            output_keys=['lane_list',
             #                                                         'obstacles_list', 'signs_data',
             #                                                         'lights_data', 'pose_data']
             #                                            )
