@@ -143,7 +143,7 @@ def road_callback(road_msg):
     lane_list = {} # {'id':'lane'}
     for k in range(len(road_data.lanes)):
         lane_list[road_data.lanes[k].id] = road_data.lanes[k]
-    rospy.loginfo('map_data_updated')
+    # rospy.loginfo('map_data_updated')
 
 def global_pose_callback(global_pose_msg):
     global global_pose_data
