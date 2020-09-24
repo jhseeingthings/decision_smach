@@ -262,7 +262,7 @@ def obstacles_callback(obstacles_msg):
             temp_obstacle = DecisionObstacle(obstacles_msg.obstacles[i], temp_lane_info)
             obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
 
-    for k in obstacles_list.keys():
+    for k in list(obstacles_list.keys()):
         if obstacles_list[k].if_tracked == 0:
             del obstacles_list[k]
     # rospy.loginfo('obstacles_data_updated')
@@ -1634,18 +1634,6 @@ class InLaneDriving(smach.State):
             rospy.loginfo("current x %f" % user_data.pose_data.mapX)
             rospy.loginfo("current y %f" % user_data.pose_data.mapY)
 
-            temp_lane = user_data.lane_list[98]
-            points_x, points_y = [], []
-            for j in range(len(temp_lane.points)):
-                points_x.append(temp_lane.points[j].x)
-                points_y.append(temp_lane.points[j].y)
-            points_num = len(points_x)
-            rospy.loginfo(points_num)
-            rospy.loginfo("now %f" % rospy.get_time())
-            for i in range(100):
-                result = lane_projection(points_x, points_y, points_num, user_data.pose_data.mapX, user_data.pose_data.mapY,
-                                     user_data.pose_data.mapHeading)
-            rospy.loginfo(rospy.get_time())
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
@@ -1665,7 +1653,7 @@ class InLaneDriving(smach.State):
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if available_lanes[target_lane_id].after_length - available_lanes[target_lane_id].front_drivable_length > EPS:
-                desired_length = available_lanes[target_lane_id].front_drivable_length
+                desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -1733,10 +1721,10 @@ class LaneChangePreparing(smach.State):
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
-
+            rospy.loginfo(rospy.get_time())
             return "ready_to_change_lane"
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            rospy.loginfo(rospy.get_time())
+
 
 class LaneChanging(smach.State):
     """
