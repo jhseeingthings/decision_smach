@@ -1634,18 +1634,6 @@ class InLaneDriving(smach.State):
             rospy.loginfo("current x %f" % user_data.pose_data.mapX)
             rospy.loginfo("current y %f" % user_data.pose_data.mapY)
 
-            rospy.loginfo(rospy.get_time())
-            cur_lane = user_data.lane_list[98]
-            points_x, points_y = [], []
-            for j in cur_lane.points:
-                points_x.append(j.x)
-                points_y.append(j.y)
-            points_num = len(points_x)
-            for i in range(100):
-                result = lane_projection(points_x, points_y, points_num, user_data.pose_data.mapX,
-                                     user_data.pose_data.mapX)
-            rospy.loginfo(rospy.get_time())
-
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
