@@ -23,7 +23,7 @@ from local_messages.msg import Lights
 from local_messages.msg import Light
 from local_messages.msg import Signs
 from local_messages.msg import Sign
-
+from numba import jit
 # import all the msg and srv files
 
 # velocity defined by m/s
@@ -78,7 +78,7 @@ MIN_DISTANCE_GAP = 5  # One car length
 
 decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
 
-
+@jit()
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
     左负右正，cur_yaw 为弧度值
@@ -1633,6 +1633,18 @@ class InLaneDriving(smach.State):
             user_data_updater(user_data)
             rospy.loginfo("current x %f" % user_data.pose_data.mapX)
             rospy.loginfo("current y %f" % user_data.pose_data.mapY)
+
+            rospy.loginfo(rospy.get_time())
+            cur_lane = user_data.lane_list[98]
+            points_x, points_y = [], []
+            for j in cur_lane.points:
+                points_x.append(j.x)
+                points_y.append(j.y)
+            points_num = len(points_x)
+            for i in range(100):
+                result = lane_projection(points_x, points_y, points_num, user_data.pose_data.mapX,
+                                     user_data.pose_data.mapX)
+            rospy.loginfo(rospy.get_time())
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
