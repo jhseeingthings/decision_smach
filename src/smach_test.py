@@ -5,7 +5,6 @@ import rospy
 import smach
 import smach_ros
 import copy
-from smach_ros import MonitorState, IntrospectionServer
 import numpy as np
 import math
 import threading
@@ -29,7 +28,6 @@ from numba import jit
 # velocity defined by m/s
 
 EPS = 0.0001
-
 
 MIN_TURNING_RADIUS = 4.5
 VEHICLE_WIDTH = 1.86
@@ -1284,7 +1282,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
     if cur_lane_info.cur_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6))
     desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
-    print(target_lane_id)
+    # print(target_lane_id)
     # print(available_lanes[target_lane_id].after_length, desired_length)
     if available_lanes[target_lane_id].after_length < desired_length:
         print("need to connect next road")
@@ -1615,10 +1613,9 @@ class Startup(smach.State):
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
             rospy.loginfo('current lane priority %d' % current_lane_info.cur_priority)
-            if current_lane_info.cur_lane_id == -1:
-                pass
-            # if current_lane_info.cur_priority <= 0:
-            #     return 'merge_and_across'
+            # target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, scenario, cur_lane_info, available_lanes)
+            if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
+                return 'merge_and_across'
             else:
                 return 'in_lane_driving'
             rospy.sleep(DECISION_PERIOD)
@@ -1641,7 +1638,7 @@ class InLaneDriving(smach.State):
         while not rospy.is_shutdown():
 
             start_time = rospy.get_time()
-            rospy.loginfo(start_time)
+            rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
             rospy.loginfo("current x %f" % user_data.pose_data.mapX)
             rospy.loginfo("current y %f" % user_data.pose_data.mapY)
@@ -1674,14 +1671,13 @@ class InLaneDriving(smach.State):
                                                desired_length)
 
             elif target_lane_id != current_lane_info.cur_lane_id:
-
                 return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             end_time = rospy.get_time()
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
-            rospy.loginfo(rospy.get_time())
+            rospy.loginfo("end time %f" % rospy.get_time())
 
 
 class LaneChangePreparing(smach.State):
@@ -1941,7 +1937,12 @@ class CreepForOpportunity(smach.State):
                              )
 
     def execute(self, user_data):
-        pass
+        while not rospy.is_shutdown():
+            pass
+            start_time = rospy.get_time()
+            end_time = rospy.get_time()
+
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
 
 
 class ExecuteMerge(smach.State):
