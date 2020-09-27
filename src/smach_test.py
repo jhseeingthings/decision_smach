@@ -1231,36 +1231,40 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6):
                     target_lane_id = cur_lane_info.cur_lane_id
                 else:
-                    if lane_reward[1] > lane_reward[0] * 2 and lane_reward[2] > lane_reward[0] * 2:
+                    if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
                         if lane_reward[2] > lane_reward[1] * 2:
                             target_lane_id = cur_lane_info.right_lane_id
                         else:
                             target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[1] > lane_reward[0] * 2:
+                    elif lane_reward[1] > lane_reward[0] * 2 + EPS:
                         target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[2] > lane_reward[0] * 2:
+                    elif lane_reward[2] > lane_reward[0] * 2 + EPS:
                         target_lane_id = cur_lane_info.right_lane_id
                     else:
                         target_lane_id = cur_lane_info.cur_lane_id
             else:
-                if lane_reward[1] == max(lane_reward):
-                    target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[2] == max(lane_reward):
-                    target_lane_id = cur_lane_info.right_lane_id
+                max_lane_reward = max(lane_reward)
+                if max_lane_reward - 0 > EPS:
+                    if lane_reward[1] == max(lane_reward):
+                        target_lane_id = cur_lane_info.left_lane_id
+                    elif lane_reward[2] == max(lane_reward):
+                        target_lane_id = cur_lane_info.right_lane_id
+                else:
+                    target_lane_id = cur_lane_info.cur_lane_id
         # 先判断当前车道的行驶效率
         else:
             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
                     lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6):
                 target_lane_id = cur_lane_info.cur_lane_id
             else:
-                if lane_reward[1] > lane_reward[0] * 1.2 and lane_reward[2] > lane_reward[0] * 1.2:
+                if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
                     if lane_reward[2] > lane_reward[1] * 1.2:
                         target_lane_id = cur_lane_info.right_lane_id
                     else:
                         target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[1] > lane_reward[0] * 1.2:
+                elif lane_reward[1] > lane_reward[0] * 1.2 + EPS:
                     target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[2] > lane_reward[0] * 1.2:
+                elif lane_reward[2] > lane_reward[0] * 1.2 + EPS:
                     target_lane_id = cur_lane_info.right_lane_id
                 else:
                     target_lane_id = cur_lane_info.cur_lane_id
@@ -1280,7 +1284,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
     if cur_lane_info.cur_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6))
     desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
-    # print(target_lane_id)
+    print(target_lane_id)
     # print(available_lanes[target_lane_id].after_length, desired_length)
     if available_lanes[target_lane_id].after_length < desired_length:
         print("need to connect next road")
