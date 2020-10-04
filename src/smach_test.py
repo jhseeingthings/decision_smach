@@ -1301,26 +1301,26 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
     if cur_lane_info.cur_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6))
     desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
-    # print(target_lane_id)
-    # print(available_lanes[target_lane_id].after_length, desired_length)
-    if available_lanes[target_lane_id].after_length < desired_length:
-        print("need to connect next road")
-        print(lane_list[target_lane_id].leadToIds)
-        next_lane_id = -1
-        temp_drivable_length = 0
-        next_lane_found = 0
-        for index in lane_list[target_lane_id].leadToIds:
-            if lane_list[index].priority == 2 and available_lanes[index].front_drivable_length > temp_drivable_length:
-                next_lane_id = index
-                temp_drivable_length = available_lanes[index].front_drivable_length
-                next_lane_found = 1
-        if next_lane_found == 0:
+
+    if target_lane_id != -1:
+        if available_lanes[target_lane_id].after_length < desired_length:
+            print("need to connect next road")
+            print(lane_list[target_lane_id].leadToIds)
+            next_lane_id = -1
+            temp_drivable_length = 0
+            next_lane_found = 0
             for index in lane_list[target_lane_id].leadToIds:
-                if lane_list[index].priority == 1 and available_lanes[
-                    index].front_drivable_length > temp_drivable_length:
+                if lane_list[index].priority == 2 and available_lanes[index].front_drivable_length > temp_drivable_length:
                     next_lane_id = index
                     temp_drivable_length = available_lanes[index].front_drivable_length
                     next_lane_found = 1
+            if next_lane_found == 0:
+                for index in lane_list[target_lane_id].leadToIds:
+                    if lane_list[index].priority == 1 and available_lanes[
+                        index].front_drivable_length > temp_drivable_length:
+                        next_lane_id = index
+                        temp_drivable_length = available_lanes[index].front_drivable_length
+                        next_lane_found = 1
     return target_lane_id, next_lane_id
 
 
@@ -1608,12 +1608,14 @@ class StartupCheck(smach.State):
                                           'lights_data', 'pose_data', 'parking_slots_list'])
 
     def execute(self, user_data):
+
         # reset the output
         while not rospy.is_shutdown():
+            rospy.loginfo("currently in StartupCheck")
+
             rospy.sleep(DECISION_PERIOD)
             user_data_updater(user_data)
             # check every input
-            input_status = 1
             if user_data.lane_list == {} or user_data.pose_data is None:
                 print('nothing from input')
                 continue
@@ -1636,17 +1638,19 @@ class Startup(smach.State):
     def execute(self, user_data):
         # 换挡，
         while not rospy.is_shutdown():
-
+            rospy.loginfo("currently in Startup")
+            rospy.sleep(DECISION_PERIOD)
             user_data_updater(user_data)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
             rospy.loginfo('current lane priority %d' % current_lane_info.cur_priority)
             # target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, scenario, cur_lane_info, available_lanes)
             if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
+                # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
             else:
                 return 'in_lane_driving'
-            rospy.sleep(DECISION_PERIOD)
+            # 还应该判断是否周围能找到目标车道，如果找不到并且周围有引导，应该进入非结构化行驶。
 
 
 #########################################
@@ -1664,6 +1668,7 @@ class InLaneDriving(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
+            rospy.loginfo("currently in InLaneDriving")
 
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
@@ -1671,6 +1676,9 @@ class InLaneDriving(smach.State):
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+            if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
+                # 的找不到当前车道或者当前车道优先级小，进入merge
+                return 'merge_and_across'
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
@@ -1698,9 +1706,9 @@ class InLaneDriving(smach.State):
             elif target_lane_id != current_lane_info.cur_lane_id:
                 return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            end_time = rospy.get_time()
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
+            end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
 
@@ -1723,8 +1731,11 @@ class LaneChangePreparing(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
-            rospy.sleep(0.5)
-            rospy.loginfo(rospy.get_time())
+
+            rospy.loginfo("currently in LaneChangePreparing")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
@@ -1755,7 +1766,9 @@ class LaneChangePreparing(smach.State):
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
-            rospy.loginfo(rospy.get_time())
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
             return "ready_to_change_lane"
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
 
@@ -1775,8 +1788,10 @@ class LaneChanging(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
-            rospy.sleep(1)
-            rospy.loginfo(rospy.get_time())
+            rospy.loginfo("currently in LaneChanging")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
@@ -1784,8 +1799,6 @@ class LaneChanging(smach.State):
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
-            # rospy.loginfo("current lane drivable length %f" % available_lanes[current_lane_info.cur_lane_id].front_drivable_length)
-
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
@@ -1808,10 +1821,14 @@ class LaneChanging(smach.State):
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
+
             if target_lane_id == current_lane_info.cur_lane_id:
                 return 'lane_change_completed'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            rospy.loginfo(rospy.get_time())
+
 
 class FindRecoverySolution(smach.State):
     """
@@ -1830,6 +1847,8 @@ class FindRecoverySolution(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in FindRecoverySolution")
+
         user_data_updater(user_data)
         pass
 
@@ -1851,6 +1870,7 @@ class LaneChangePreparingErrorRecovery(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in LaneChangePreparingErrorRecovery")
         user_data_updater(user_data)
         pass
 
@@ -1869,6 +1889,7 @@ class LaneChangingErrorRecovery(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in LaneChangingErrorRecovery")
         user_data_updater(user_data)
         pass
 
@@ -1886,6 +1907,7 @@ class ApproachIntersection(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in ApproachIntersection")
         pass
 
 
@@ -1899,6 +1921,7 @@ class CreepToIntersectionWithLights(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in CreepToIntersectionWithLights")
         pass
 
 
@@ -1912,6 +1935,7 @@ class CreepToIntersectionWithoutLights(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in CreepToIntersectionWithoutLights")
         pass
 
 
@@ -1925,6 +1949,7 @@ class EnterIntersection(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in EnterIntersection")
         pass
 
 
@@ -1938,6 +1963,7 @@ class PassIntersection(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in PassIntersection")
         pass
 
 
@@ -1959,6 +1985,8 @@ class CreepForOpportunity(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
+            rospy.loginfo("currently in CreepForOpportunity")
+
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
@@ -1971,15 +1999,74 @@ class CreepForOpportunity(smach.State):
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
-            # rospy.loginfo("current lane drivable length %f" % available_lanes[current_lane_info.cur_lane_id].front_drivable_length)
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
+                                                                current_lane_info, available_lanes)
+            rospy.loginfo("target lane id %d" % target_lane_id)
+            rospy.loginfo("next target lane id %d" % next_lane_id)
+            if target_lane_id != -1:
+                speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
+                                                                           target_lane_id, merge_decelerate=1)
+                rospy.loginfo("speed upper %f" % speed_upper_limit)
+                rospy.loginfo("speed lower %f" % speed_lower_limit)
+                desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
+                # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
+                if available_lanes[target_lane_id].after_length - available_lanes[
+                    target_lane_id].front_drivable_length > EPS:
+                    desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
 
+                rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
+                rospy.loginfo("desired length %f" % desired_length)
+
+                lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge', available_lanes, target_lane_id, next_lane_id)
+                is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+                if is_ready == True:
+                    return 'ready'
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                              selected_parking_lot=[], reference_gear=1)
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
+
+class ExecuteMerge(smach.State):
+    """
+
+    """
+
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['back_to_normal', 'break'],
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_data', 'pose_data', 'parking_slots_list'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_data', 'pose_data', 'parking_slots_list']
+                             )
+
+    def execute(self, user_data):
+
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in ExecuteMerge")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+            rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+            # 如果找到当前车道，且当前车道优先级为正
+            if current_lane_info.cur_priority > 0:
+                return 'back_to_normal'
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
-                                                                       target_lane_id, merge_decelerate=1)
+                                                                       target_lane_id)
             rospy.loginfo("speed upper %f" % speed_upper_limit)
             rospy.loginfo("speed lower %f" % speed_lower_limit)
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
@@ -1991,50 +2078,22 @@ class CreepForOpportunity(smach.State):
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
 
-            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge', available_lanes, target_lane_id, next_lane_id)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
+                                                           available_lanes, target_lane_id, next_lane_id)
             is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
             if is_ready == True:
-                return 'ready'
-
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
-
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                              selected_parking_lot=[], reference_gear=1)
+            else:
+                speed_upper_limit = 0
+                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                              selected_parking_lot=[], reference_gear=1)
+                return 'break'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
-
-
-class ExecuteMerge(smach.State):
-    """
-
-    """
-
-    def __init__(self):
-        smach.State.__init__(self, outcomes=['succeeded', 'break'],
-                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_data', 'pose_data', 'parking_slots_list'],
-                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_data', 'pose_data', 'parking_slots_list']
-                             )
-
-    def execute(self, user_data):
-        pass
-
-
-class YieldBreak(smach.State):
-    """
-
-    """
-
-    def __init__(self):
-        smach.State.__init__(self, outcomes=['continue'],
-                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_data', 'pose_data', 'parking_slots_list'],
-                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_data', 'pose_data', 'parking_slots_list']
-                             )
-
-    def execute(self, user_data):
-        pass
+            rospy.loginfo("end time %f" % rospy.get_time())
 
 
 #########################################
@@ -2050,6 +2109,7 @@ class DriveAlongLane(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in DriveAlongLane")
         pass
 
 
@@ -2063,6 +2123,7 @@ class SelectParkingSpot(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in SelectParkingSpot")
         pass
 
 
@@ -2076,6 +2137,7 @@ class DriveAndStopInFront(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in DriveAndStopInFront")
         pass
 
 
@@ -2089,6 +2151,7 @@ class ExecutePark(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in ExecutePark")
         pass
 
 
@@ -2102,6 +2165,7 @@ class PoseCheck(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in PoseCheck")
         pass
 
 
@@ -2115,6 +2179,7 @@ class RePark(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in RePark")
         pass
 
 
@@ -2128,6 +2193,7 @@ class AwaitMission(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in AwaitMission")
         pass
 
 
@@ -2141,6 +2207,7 @@ class MarkParkingSpot(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in MarkParkingSpot")
         pass
 
 
@@ -2154,6 +2221,7 @@ class ReturnToLane(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in ReturnToLane")
         pass
 
 
@@ -2167,6 +2235,7 @@ class ReGlobalPlan(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in ReGlobalPlan")
         pass
 
 
@@ -2180,6 +2249,7 @@ class TurnAround(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in TurnAround")
         pass
 
 
@@ -2193,6 +2263,7 @@ class Reverse(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in Reverse")
         pass
 
 
@@ -2209,6 +2280,7 @@ class ConditionJudge(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in ConditionJudge")
         pass
 
 
@@ -2222,6 +2294,7 @@ class StopImmediately(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in StopImmediately")
         pass
 
 
@@ -2238,6 +2311,7 @@ class EmergencyBrake(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in EmergencyBrake")
         pass
 
 
@@ -2251,6 +2325,7 @@ class Await(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.loginfo("currently in Await")
         pass
 
 
@@ -2403,8 +2478,8 @@ def main():
                                            transitions={'ready': 'EXECUTE_MERGE',
                                                         'back_to_normal': 'succeeded'})
                     smach.StateMachine.add('EXECUTE_MERGE', ExecuteMerge(),
-                                           transitions={'succeeded': 'succeeded', 'break': 'YIELD_BREAK'})
-                    smach.StateMachine.add('YIELD_BREAK', YieldBreak(), transitions={'continue': 'EXECUTE_MERGE'})
+                                           transitions={'back_to_normal': 'succeeded',
+                                                        'break': 'CREEP_FOR_OPPORTUNITY'})
                 smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW'})
 
                 sm_scenario_park = smach.StateMachine(outcomes=['mission_continue'],
