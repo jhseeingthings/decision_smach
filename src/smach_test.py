@@ -1709,7 +1709,7 @@ class InLaneDriving(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-            if available_lanes[target_lane_id].after_length - available_lanes[target_lane_id].front_drivable_length > EPS:
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
                 desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
@@ -1770,7 +1770,7 @@ class LaneChangePreparing(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-            if available_lanes[target_lane_id].after_length - available_lanes[target_lane_id].front_drivable_length > EPS:
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
                 desired_length = available_lanes[target_lane_id].front_drivable_length
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
@@ -1824,7 +1824,7 @@ class LaneChanging(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-            if available_lanes[target_lane_id].after_length - available_lanes[
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
                 desired_length = available_lanes[target_lane_id].front_drivable_length
 
@@ -2025,7 +2025,7 @@ class CreepForOpportunity(smach.State):
                 rospy.loginfo("speed lower %f" % speed_lower_limit)
                 desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
                 # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-                if available_lanes[target_lane_id].after_length - available_lanes[
+                if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                     target_lane_id].front_drivable_length > EPS:
                     desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
 
@@ -2085,7 +2085,7 @@ class ExecuteMerge(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-            if available_lanes[target_lane_id].after_length - available_lanes[
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
                 desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
 
