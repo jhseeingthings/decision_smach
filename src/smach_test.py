@@ -1292,6 +1292,12 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                     target_lane_id = cur_lane_info.left_lane_id
                 elif lane_reward[2] > lane_reward[0] * 1.2 + EPS:
                     target_lane_id = cur_lane_info.right_lane_id
+
+                if target_lane_id == -1:
+                    if lane_drivable_length[1] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[1] - lane_reward[0] > EPS:
+                        target_lane_id = cur_lane_info.left_lane_id
+                    elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[2] - lane_reward[0] > EPS:
+                        target_lane_id = cur_lane_info.right_lane_id
                 else:
                     target_lane_id = cur_lane_info.cur_lane_id
 
@@ -1740,7 +1746,6 @@ class LaneChangePreparing(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
-
             rospy.loginfo("currently in LaneChangePreparing")
 
             start_time = rospy.get_time()
