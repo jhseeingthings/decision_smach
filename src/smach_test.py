@@ -35,6 +35,9 @@ MIN_TURNING_RADIUS = 4.5
 VEHICLE_WIDTH = 1.86
 VEHICLE_LENGTH = 5
 LANE_CHANGE_BASE_LENGTH = 12
+OBSERVE_RANGE = 60
+# 障碍物的感知距离（用于对车道可行驶距离做限制，期望路径的距离做限制）
+
 
 # 大决策：当前自车的行为
 # possible values
@@ -1113,26 +1116,32 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
             front_drivable_length = 0
         else:
             front_drivable_length = front_drivable_s - vehicle_s
+
+        if front_drivable_length > OBSERVE_RANGE:
+            front_drivable_length = OBSERVE_RANGE
+
         if rear_drivable_s > vehicle_s:
             rear_drivable_length = 0
         else:
             rear_drivable_length = vehicle_s - rear_drivable_s
 
-        lane_efficiency = min(temp_efficiency, lane_efficiency)
-
-        if front_drivable_length < max(2 * LANE_CHANGE_BASE_LENGTH, pose_data.mVf * 5):
-            lane_efficiency = 0
+        if rear_drivable_length > OBSERVE_RANGE:
+            rear_drivable_length = OBSERVE_RANGE
 
         moving_obstacle_distance = moving_obstacle_s - vehicle_s
         moving_obstacle_distance = min(front_drivable_length , moving_obstacle_distance)
+
+        if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
+            lane_efficiency = 0
+            # 如果有静态障碍物限制可行驶距离，车道效率置0
+        lane_efficiency = min(temp_efficiency, lane_efficiency)
 
         temp_drivable_lane = available_lanes[lane_index]
         temp_drivable_lane.front_drivable_length = front_drivable_length
         temp_drivable_lane.rear_drivable_length = rear_drivable_length
         temp_drivable_lane.driving_efficiency = lane_efficiency
         temp_drivable_lane.closest_moving_object = moving_obstacle_distance
-        # print(lane_index, available_lanes[lane_index].after_length, available_lanes[lane_index].before_length)
-        # print(lane_index, vehicle_s, front_drivable_length, lane_efficiency, moving_obstacle_distance)
+
 
     cur_lane_info.can_change_left = temp_can_change_left and cur_lane_info.can_change_left
     cur_lane_info.can_change_right = temp_can_change_right and cur_lane_info.can_change_right
@@ -1216,8 +1225,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                 lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
                 lane_efficiency_ratio.append(efficiency)
                 # print(efficiency)
-                free_space = available_lanes[selectable_lanes[i]].closest_moving_object / available_lanes[
-                    selectable_lanes[i]].after_length
+                free_space = available_lanes[selectable_lanes[i]].closest_moving_object / min(available_lanes[
+                    selectable_lanes[i]].after_length, OBSERVE_RANGE)
                 lane_drivable_length.append(available_lanes[selectable_lanes[i]].closest_moving_object)
                 lane_drivable_length_ratio.append(free_space)
                 # print(free_space)
