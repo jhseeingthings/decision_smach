@@ -36,6 +36,7 @@ VEHICLE_WIDTH = 1.86
 VEHICLE_LENGTH = 5
 LANE_CHANGE_BASE_LENGTH = 12
 OBSERVE_RANGE = 60
+LANE_WIDTH_BASE = 3
 # 障碍物的感知距离（用于对车道可行驶距离做限制，期望路径的距离做限制）
 
 
@@ -72,6 +73,8 @@ DECISION_PERIOD = 0.5
 
 SPEED_UPPER_LIMIT_DEFAULT = 30
 SPEED_LOWER_LIMIT_DEFAULT = 0
+
+COMFORT_DEC = 3
 
 TIME_ACC = 1
 # is computed as the time for accelerating from zero up to speed in the destination lane using the same conservative acceleration.
@@ -339,7 +342,8 @@ class DrivableLanes:
         self.front_occupied = 0
         self.rear_drivable_length = 0
         self.driving_efficiency = 0
-        self.closest_moving_object = 0
+        self.closest_moving_object_distance = 0
+        self.closest_moving_object_type = 0
 
         self.projection_index = -1
         self.projection_x = -1
@@ -1058,7 +1062,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         points_num = len(points_x)
 
         vehicle_s = available_lanes[lane_index].before_length
-
+        vehicle_l = available_lanes[lane_index].lateral_distance
         # lon_distance_interest = vehicle_s - MIN_TURNING_RADIUS
         left_margin = -1 / 2 * temp_lane.width + (temp_lane.width - 1.2 * VEHICLE_WIDTH)
         right_margin = 1 / 2 * temp_lane.width - (temp_lane.width - 1.2 * VEHICLE_WIDTH)
@@ -1069,7 +1073,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         # 自车处于当前车道上, 计算车前和车后可行驶长度
 
         lane_efficiency = temp_lane.speedUpperLimit / 3.6
+
         temp_efficiency = 120
+        moving_object_type = 0
         moving_obstacle_s = front_drivable_s
         # define efficiency by the closest dynamic obstacle to the vehicle
 
@@ -1101,9 +1107,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
                 if lane_index == cur_lane_info.cur_lane_id:
                     if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
-                        if not (lateral_max < -3 / 2 * temp_lane.width or lateral_min > left_margin):
+                        if not (lateral_max < left_margin - VEHICLE_WIDTH or lateral_min > left_margin):
                             temp_can_change_left = 0
-                        if not (lateral_max < right_margin or lateral_min > 3 / 2 * temp_lane.width):
+                        if not (lateral_max < right_margin or lateral_min > right_margin + VEHICLE_WIDTH):
                             temp_can_change_right = 0
             else:
                 # 找车前最近的在车道上的动态障碍物的速度
@@ -1111,6 +1117,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                     if temp_obstacle.s_record[-1] > vehicle_s and temp_obstacle.s_record[-1] < moving_obstacle_s:
                         moving_obstacle_s = temp_obstacle.s_record[-1]
                         temp_efficiency = temp_obstacle.s_velocity[-1]
+                        moving_object_type = temp_obstacle.type
+
 
         if front_drivable_s < vehicle_s:
             front_drivable_length = 0
@@ -1140,8 +1148,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         temp_drivable_lane.front_drivable_length = front_drivable_length
         temp_drivable_lane.rear_drivable_length = rear_drivable_length
         temp_drivable_lane.driving_efficiency = lane_efficiency
-        temp_drivable_lane.closest_moving_object = moving_obstacle_distance
-
+        temp_drivable_lane.closest_moving_object_distance = moving_obstacle_distance
+        temp_drivable_lane.closest_moving_object_type = moving_object_type
 
     cur_lane_info.can_change_left = temp_can_change_left and cur_lane_info.can_change_left
     cur_lane_info.can_change_right = temp_can_change_right and cur_lane_info.can_change_right
@@ -1225,15 +1233,12 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                 lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
                 lane_efficiency_ratio.append(efficiency)
                 # print(efficiency)
-                free_space = available_lanes[selectable_lanes[i]].closest_moving_object / min(available_lanes[
+                free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
                     selectable_lanes[i]].after_length, OBSERVE_RANGE)
-                lane_drivable_length.append(available_lanes[selectable_lanes[i]].closest_moving_object)
+                lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
                 lane_drivable_length_ratio.append(free_space)
-                # print(free_space)
-                # print(can_change_constraint[i])
-                # print(lane_priority[i])
+
                 lane_reward.append((0.8 * efficiency + 0.2 * free_space) * lane_priority[i] * can_change_constraint[i])
-                # rospy.loginfo(available_lanes[selectable_lanes[i]].closest_moving_object)
             else:
                 lane_reward.append(0)
                 lane_efficiency_ratio.append(0)
@@ -1254,17 +1259,17 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
             rospy.loginfo("dis to next lane %f" % cur_lane_info.dist_to_next_road)
             if lane_priority[0] == 2:
                 if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
-                        lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6):
+                        lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
                     target_lane_id = cur_lane_info.cur_lane_id
                 else:
                     if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
-                        if lane_reward[2] > lane_reward[1] * 2:
+                        if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
                             target_lane_id = cur_lane_info.right_lane_id
-                        else:
+                        elif lane_reward[2] <= lane_reward[1] * 1.2+ EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
                             target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[1] > lane_reward[0] * 2 + EPS:
+                    elif lane_reward[1] > lane_reward[0] * 2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
                         target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[2] > lane_reward[0] * 2 + EPS:
+                    elif lane_reward[2] > lane_reward[0] * 2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
                         target_lane_id = cur_lane_info.right_lane_id
                     else:
                         target_lane_id = cur_lane_info.cur_lane_id
@@ -1280,17 +1285,18 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         # 先判断当前车道的行驶效率
         else:
             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
-                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6):
+                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
                 target_lane_id = cur_lane_info.cur_lane_id
             else:
                 if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
-                    if lane_reward[2] > lane_reward[1] * 1.2:
+                    if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
                         target_lane_id = cur_lane_info.right_lane_id
-                    else:
+                    elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
                         target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[1] > lane_reward[0] * 1.2 + EPS:
+                elif lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
                     target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[2] > lane_reward[0] * 1.2 + EPS:
+                elif lane_reward[2] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
                     target_lane_id = cur_lane_info.right_lane_id
 
                 if target_lane_id == -1:
@@ -1298,8 +1304,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         target_lane_id = cur_lane_info.left_lane_id
                     elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[2] - lane_reward[0] > EPS:
                         target_lane_id = cur_lane_info.right_lane_id
-                else:
-                    target_lane_id = cur_lane_info.cur_lane_id
+                    else:
+                        target_lane_id = cur_lane_info.cur_lane_id
 
     elif scenario == "parking":
         pass
@@ -1682,6 +1688,12 @@ class InLaneDriving(smach.State):
                              )
 
     def execute(self, user_data):
+        """
+        在不满足正常变道的条件下，必须停下而不是试探性往前开的情况：
+        1. 停止线前停车
+        2. 没有变道的条件
+        3. 前方堵住路的事静态的车辆
+        """
         while not rospy.is_shutdown():
             rospy.loginfo("currently in InLaneDriving")
 
@@ -1694,6 +1706,9 @@ class InLaneDriving(smach.State):
             if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
                 # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
+            # if current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
+            #     return 'intersection'
+
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
@@ -1707,10 +1722,14 @@ class InLaneDriving(smach.State):
                                                                        target_lane_id)
             rospy.loginfo("speed upper %f" % speed_upper_limit)
             rospy.loginfo("speed lower %f" % speed_lower_limit)
+
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
-                desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
+                if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[target_lane_id].closest_moving_object_type != 'VEHICLE':
+                        pass
+                else:
+                    desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -1921,8 +1940,56 @@ class ApproachIntersection(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in ApproachIntersection")
-        pass
+
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in ApproachIntersection")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+            rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
+
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+                                                                current_lane_info, available_lanes)
+            rospy.loginfo("target lane id %d" % target_lane_id)
+            rospy.loginfo("next target lane id %d" % next_lane_id)
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
+                                                                       target_lane_id)
+            rospy.loginfo("speed upper %f" % speed_upper_limit)
+            rospy.loginfo("speed lower %f" % speed_lower_limit)
+
+            desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
+            # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
+                target_lane_id].front_drivable_length > EPS:
+                if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
+                    target_lane_id].closest_moving_object_type != 'VEHICLE':
+                    pass
+                else:
+                    desired_length = min(desired_length,
+                                         available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+
+            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
+            rospy.loginfo("desired length %f" % desired_length)
+            if target_lane_id == current_lane_info.cur_lane_id:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+
+            elif target_lane_id != current_lane_info.cur_lane_id:
+                return 'need_to_change_lane'
+            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
+            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                          selected_parking_lot=[], reference_gear=1)
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
 
 
 class CreepToIntersectionWithLights(smach.State):
