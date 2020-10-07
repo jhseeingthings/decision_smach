@@ -1712,7 +1712,6 @@ class InLaneDriving(smach.State):
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
-
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
@@ -1733,12 +1732,15 @@ class InLaneDriving(smach.State):
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
-            if target_lane_id == current_lane_info.cur_lane_id:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+            if desired_length > 0:
+                if target_lane_id == current_lane_info.cur_lane_id:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                elif target_lane_id != current_lane_info.cur_lane_id:
+                    return 'need_to_change_lane'
+            else:
+                reference_path = []
 
-            elif target_lane_id != current_lane_info.cur_lane_id:
-                return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
