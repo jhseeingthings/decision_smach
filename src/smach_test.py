@@ -1,6 +1,17 @@
 #! /usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+
+import sys, time
+"""
+ros_path = '/opt/ros/noetic/lib/python2.7/dist-packages'
+if ros_path in sys.path:
+    sys.path.remove(ros_path)
+from numba import jit
+sys.path.append(ros_path)
+"""
+from numba import jit
+
 import rospy
 import smach
 import smach_ros
@@ -24,7 +35,10 @@ from local_messages.msg import Signs
 from local_messages.msg import Sign
 from local_messages.msg import Things
 from local_messages.msg import Thing
-from numba import jit
+
+from em_planner.srv import PlanningFeedback
+from map_provider.srv import ReGlobalPlanning
+
 # import all the msg and srv files
 
 # velocity defined by m/s
