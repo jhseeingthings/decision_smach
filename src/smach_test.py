@@ -36,8 +36,8 @@ from local_messages.msg import Sign
 from local_messages.msg import Things
 from local_messages.msg import Thing
 
-from em_planner.srv import PlanningFeedback
-from map_provider.srv import ReGlobalPlanning
+from em_planner.srv import PlanningFeedback, PlanningFeedbackRequest, PlanningFeedbackResponse
+from map_provider.srv import ReGlobalPlanning, ReGlobalPlanningRequest, ReGlobalPlanningResponse
 
 # import all the msg and srv files
 
@@ -79,6 +79,7 @@ obstacles_list = {}
 signs_data = None
 lights_data = None
 parking_spots_list = {}
+planning_feedback = 0
 
 PREDICTION_DURATION = 5
 PREDICTION_PERIOD = 0.1
@@ -100,6 +101,8 @@ TIME_SPACE = 1
 MIN_DISTANCE_GAP = 5  # One car length
 
 decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
+rospy.wait_for_service('re_global_planning')
+re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 
 @jit()
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
@@ -318,6 +321,17 @@ def listener():
     # rospy.spin()
 
     # 只 spin 有 callback 的语句
+
+
+def planning_feedback_callback(plan_request):
+    rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
+    global planning_feedback
+    planning_feedback = plan_request.planningFeedback
+    return PlanningFeedbackResponse(1)
+
+def server():
+    rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
+    # rospy.spin()
 
 
 # update lane information, triggered when the global pose is updated.
@@ -1631,6 +1645,30 @@ def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_l
     decision_msg_pub.publish(message)
 
 
+def service_caller(blocked_id_list):
+    try:
+        map_provider_respond = re_global_planning(blocked_id_list)
+        if map_provider_respond.received == 1:
+            return
+    except rospy.ServiceException as exception:
+        rospy.loginfo("Service did not process request: " + str(exception))
+
+# def re_global_planning():
+#     rospy.init_node('greetings_client')
+#     #   等待有可用的服务"greetings"
+#     rospy.wait_for_service("greetings")
+#     try:
+#         # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
+#         greetings_client = rospy.ServiceProxy("greetings", Greeting)
+#         # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
+#         # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
+#         # resp = greetings_client("HAN",20)
+#         resp = greetings_client.call("HAN", 20)
+#         rospy.loginfo("Message From server:%s" % resp.feedback)
+#     except rospy.ServiceException as e:
+#         rospy.logwarn("Service call failed: %s" % e)
+
+
 #########################################
 # STARTUP
 #########################################
@@ -1711,6 +1749,9 @@ class InLaneDriving(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in InLaneDriving")
 
+            blocked_lane_id_list = []
+
+
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
@@ -1739,10 +1780,15 @@ class InLaneDriving(smach.State):
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
-                if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[target_lane_id].closest_moving_object_type != 'VEHICLE':
+                if available_lanes[target_lane_id].closest_moving_object_type != 'VEHICLE':
                         pass
                 else:
                     desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+
+
+            if target_lane_id != -1:
+                if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
+                    desired_length = 0
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -1758,6 +1804,12 @@ class InLaneDriving(smach.State):
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=1)
+
+            if planning_feedback == 3:
+                print("1111111111")
+                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
+                service_caller(blocked_lane_id_list)
+
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2426,27 +2478,11 @@ class Await(smach.State):
         pass
 
 
-# def re_global_planning():
-#     rospy.init_node('greetings_client')
-#     #   等待有可用的服务"greetings"
-#     rospy.wait_for_service("greetings")
-#     try:
-#         # 定义service客户端，service 名称为 “greetings”，service 类型为 Greeting
-#         greetings_client = rospy.ServiceProxy("greetings", Greeting)
-#         # 向server端发送请求,发送的request内容为 name 和 age，其值分别为 "HAN", 20
-#         # 此处发送的 request 内容与 srv 文件中定义的 request 部分的属性是一致的
-#         # resp = greetings_client("HAN",20)
-#         resp = greetings_client.call("HAN", 20)
-#         rospy.loginfo("Message From server:%s" % resp.feedback)
-#     except rospy.ServiceException as e:
-#         rospy.logwarn("Service call failed: %s" % e)
-
-
 def main():
     rospy.init_node('decision_smach')
 
     listener()
-
+    server()
     # Create the top level SMACH state machine
     sm_top = smach.StateMachine(outcomes=[])
     sm_top.userdata.lane_list = {}
