@@ -93,7 +93,7 @@ signs_data = {}
 lights_list = {}
 parking_spots_list = {}
 planning_feedback = 0
-planning_reference_gear = 0
+reference_gear = 0
 current_gear = 0
 
 mission_completed = 0
@@ -326,8 +326,8 @@ def planning_feedback_callback(plan_request):
     global planning_feedback
     planning_feedback = plan_request.planningFeedback
     if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
-        global planning_reference_gear
-        planning_reference_gear = planning_feedback
+        global reference_gear
+        reference_gear = planning_feedback
     return PlanningFeedbackResponse(1)
 
 
@@ -1691,8 +1691,8 @@ class Startup(smach.State):
         # 换挡，
         while not rospy.is_shutdown():
             rospy.loginfo("currently in Startup")
-            global
-            rospy.sleep(DECISION_PERIOD)
+            global reference_gear
+            reference_gear = 0
             user_data_updater(user_data)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
@@ -1733,7 +1733,6 @@ class InLaneDriving(smach.State):
                 return 'park'
 
             blocked_lane_id_list = []
-
 
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
@@ -1786,7 +1785,7 @@ class InLaneDriving(smach.State):
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                          selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
 
             if planning_feedback == 3:
                 print("1111111111")
@@ -1849,7 +1848,7 @@ class LaneChangePreparing(smach.State):
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                          selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -1904,7 +1903,7 @@ class LaneChanging(smach.State):
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                          selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2037,7 +2036,7 @@ class ApproachIntersection(smach.State):
                 return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                          selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2157,7 +2156,7 @@ class CreepForOpportunity(smach.State):
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                desired_length)
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                              selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2217,11 +2216,11 @@ class ExecuteMerge(smach.State):
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                desired_length)
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                              selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             else:
                 speed_upper_limit = 0
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
+                              selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
                 return 'break'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2244,20 +2243,12 @@ class DriveAlongLane(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in DriveAlongLane")
 
-            blocked_lane_id_list = []
-
-
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
-            if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
-                # 的找不到当前车道或者当前车道优先级小，进入merge
-                return 'merge_and_across'
-            # if current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
-            #     return 'intersection'
 
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
@@ -2296,17 +2287,10 @@ class DriveAlongLane(smach.State):
             else:
                 reference_path = []
 
-            if planning_reference_gear != 1:
-                reference_gear = planning_reference_gear
-
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
 
-            if planning_feedback == 3:
-                print("1111111111")
-                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
-                re_global_planning_caller(blocked_lane_id_list)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2539,7 +2523,7 @@ class GearSwitch(smach.State):
     def execute(self, user_data):
         while not rospy.is_shutdown():
             global ready_to_go
-            if current_gear != planning_reference_gear:
+            if current_gear != reference_gear:
                 ready_to_go = 0
             else:
                 ready_to_go = 1
