@@ -56,6 +56,15 @@ OBSERVE_RANGE = 60
 LANE_WIDTH_BASE = 3
 # 障碍物的感知距离（用于对车道可行驶距离做限制，期望路径的距离做限制）
 
+# GEAR CONSTANT VALUES
+FORWARD_GEAR = 1
+NEUTRAL_GEAR = 0
+REVERSE_GEAR = -1
+
+# Planning feedback
+RE_CHOOSE_PATH = 3
+RE_CHOOSE_PARKING_SPOT = 4
+PARKING_DONE = 5
 
 # 大决策：当前自车的行为
 # possible values
@@ -80,13 +89,16 @@ mission_ahead = None
 global_pose_data = None
 lane_list = {}
 obstacles_list = {}
-signs_data = None
+signs_data = {}
 lights_list = {}
 parking_spots_list = {}
 planning_feedback = 0
 planning_reference_gear = 0
+current_gear = 0
 
 mission_completed = 0
+
+ready_to_go = 0
 
 PREDICTION_DURATION = 5
 PREDICTION_PERIOD = 0.1
@@ -110,11 +122,11 @@ MIN_DISTANCE_GAP = 5  # One car length
 # decision output message handler
 decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
 # re global planning service handler
-# rospy.wait_for_service('re_global_planning')
-# re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
+rospy.wait_for_service('re_global_planning')
+re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 # mission done - service handler
-# rospy.wait_for_service('current_mission_finished')
-# current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
+rospy.wait_for_service('current_mission_finished')
+current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
 
 @jit()
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
@@ -285,6 +297,11 @@ def mission_callback(mission_msg):
     mission_ahead.missionLocationY = mission_msg.firstDestinationMapY
 
 
+def gear_callback(gear_msg):
+    global current_gear
+    current_gear = gear_msg.currentGear
+
+
 def listener():
     # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
     # rospy.init_node('listener', anonymous = True)
@@ -297,6 +314,7 @@ def listener():
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_things", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("gear_feedback", Missions, gear_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -307,6 +325,9 @@ def planning_feedback_callback(plan_request):
     rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
     global planning_feedback
     planning_feedback = plan_request.planningFeedback
+    if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
+        global planning_reference_gear
+        planning_reference_gear = planning_feedback
     return PlanningFeedbackResponse(1)
 
 
@@ -1547,7 +1568,7 @@ def re_global_planning_decider():
     pass
 
 
-def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot, reference_gear):
+def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_limit, reference_path, selected_parking_lot, reference_gear, ready_to_go):
     message = Decision()
     message.scenario = int(scenario)
     message.speedUpperLimit = speed_upper_limit
@@ -1555,6 +1576,7 @@ def output_filler(scenario, filtered_obstacles, speed_upper_limit, speed_lower_l
     message.refPath = reference_path
     message.selectedParkingLot = selected_parking_lot
     message.refGear = reference_gear
+    message.readyToGo = ready_to_go
     filtered_obstacles_list = []
     for obstacle_id, obstacle in filtered_obstacles.items():
         filtered_obstacle = FilteredObstacle()
@@ -1639,8 +1661,15 @@ class StartupCheck(smach.State):
             rospy.sleep(DECISION_PERIOD)
             user_data_updater(user_data)
             # check every input
+            if user_data.obstacles_list == {}:
+                rospy.loginfo("obstacle message missing.")
+            if user_data.lights_data == {}:
+                rospy.loginfo("light message missing.")
+            if user_data.signs_data == {}:
+                rospy.loginfo("sign message missing.")
+
             if user_data.lane_list == {} or user_data.pose_data is None:
-                print('nothing from input')
+                rospy.loginfo("nothing from input.")
                 continue
             # check vehicle status
             vehicle_status = 1
@@ -1662,6 +1691,7 @@ class Startup(smach.State):
         # 换挡，
         while not rospy.is_shutdown():
             rospy.loginfo("currently in Startup")
+            global
             rospy.sleep(DECISION_PERIOD)
             user_data_updater(user_data)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
@@ -1756,7 +1786,7 @@ class InLaneDriving(smach.State):
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1)
+                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
 
             if planning_feedback == 3:
                 print("1111111111")
@@ -1819,7 +1849,7 @@ class LaneChangePreparing(smach.State):
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1)
+                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -1874,7 +1904,7 @@ class LaneChanging(smach.State):
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1)
+                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2007,7 +2037,7 @@ class ApproachIntersection(smach.State):
                 return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=1)
+                          selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2127,7 +2157,7 @@ class CreepForOpportunity(smach.State):
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                desired_length)
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1)
+                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2187,11 +2217,11 @@ class ExecuteMerge(smach.State):
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                desired_length)
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1)
+                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
             else:
                 speed_upper_limit = 0
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                              selected_parking_lot=[], reference_gear=1)
+                              selected_parking_lot=[], reference_gear=1, ready_to_go = ready_to_go)
                 return 'break'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2271,7 +2301,7 @@ class DriveAlongLane(smach.State):
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
-                          selected_parking_lot=[], reference_gear=reference_gear)
+                          selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
 
             if planning_feedback == 3:
                 print("1111111111")
@@ -2508,16 +2538,15 @@ class GearSwitch(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
-            if planning_feedback == 1 or planning_feedback == 2:
-                global planning_reference_gear
-                planning_reference_gear = planning_feedback
+            global ready_to_go
+            if current_gear != planning_reference_gear:
+                ready_to_go = 0
+            else:
+                ready_to_go = 1
 
             rospy.sleep(DECISION_PERIOD)
-            if mission_completed == 1:
+            if mission_completed:
                 return 'succeeded'
-
-
-
 
 
 def main():
