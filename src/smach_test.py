@@ -35,6 +35,7 @@ from local_messages.msg import Signs
 from local_messages.msg import Sign
 from local_messages.msg import Things
 from local_messages.msg import Thing
+from local_messages.msg import ControlFeedback
 from map_provider.msg import Missions
 
 
@@ -318,7 +319,7 @@ def listener():
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_things", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("gear_feedback", Missions, gear_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("gear_feedback", ControlFeedback, gear_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1675,7 +1676,7 @@ class StartupCheck(smach.State):
             # check every input
             if user_data.obstacles_list == {}:
                 rospy.loginfo("obstacle message missing.")
-            if user_data.lights_data == {}:
+            if user_data.lights_list == {}:
                 rospy.loginfo("light message missing.")
             if user_data.signs_data == {}:
                 rospy.loginfo("sign message missing.")
@@ -1800,7 +1801,7 @@ class InLaneDriving(smach.State):
                           selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
 
             if planning_feedback == 3:
-                print("1111111111")
+                rospy.loginfo("No way to go!!!")
                 blocked_lane_id_list.append(current_lane_info.cur_lane_id)
                 re_global_planning_caller(blocked_lane_id_list)
 
@@ -1888,7 +1889,7 @@ class LaneChanging(smach.State):
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
-
+            
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
@@ -2671,9 +2672,9 @@ class GearSwitch(smach.State):
         while not rospy.is_shutdown():
             global ready_to_go
             if current_gear != reference_gear:
-                ready_to_go = 0
+                ready_to_go = False
             else:
-                ready_to_go = 1
+                ready_to_go = True
 
             rospy.sleep(DECISION_PERIOD)
             if mission_completed:
