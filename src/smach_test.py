@@ -717,7 +717,7 @@ class TrafficLight:
 
 class MissionAhead:
     def __init__(self):
-        self.missionType = ''
+        self.missionType = None
         self.missionLocationX = 0
         self.missionLocationY = 0
         self.missionLaneIds = []
@@ -1672,6 +1672,10 @@ class StartupCheck(smach.State):
             rospy.loginfo("currently in StartupCheck")
 
             rospy.sleep(DECISION_PERIOD)
+
+            if mission_ahead == None:
+                continue
+
             user_data_updater(user_data)
             # check every input
             if user_data.obstacles_list == {}:
@@ -1725,7 +1729,7 @@ class Startup(smach.State):
 class InLaneDriving(smach.State):
     def __init__(self):
         smach.State.__init__(self,
-                             outcomes=['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error'],
+                             outcomes=['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error', 'finished'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -1780,19 +1784,20 @@ class InLaneDriving(smach.State):
                 else:
                     desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
 
-
             if target_lane_id != -1:
                 if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
                     desired_length = 0
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
+
+            if target_lane_id != current_lane_info.cur_lane_id:
+                return 'need_to_change_lane'
+
+            # 避免找到身后的目标路径
             if desired_length > 0:
-                if target_lane_id == current_lane_info.cur_lane_id:
-                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                    desired_length)
-                elif target_lane_id != current_lane_info.cur_lane_id:
-                    return 'need_to_change_lane'
             else:
                 reference_path = []
 
@@ -1858,8 +1863,14 @@ class LaneChangePreparing(smach.State):
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
             # if target_lane_id == current_lane_info.cur_lane_id:
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
+
+            # 避免找到身后的目标路径
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
+
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
@@ -1913,8 +1924,13 @@ class LaneChanging(smach.State):
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
             # if target_lane_id == current_lane_info.cur_lane_id:
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
+            # 避免找到身后的目标路径
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
+
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
@@ -2166,19 +2182,24 @@ class CreepForOpportunity(smach.State):
                 is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
                 if is_ready == True:
                     return 'ready'
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+                    # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id,
+                                                   available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                               selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
 
+
 class ExecuteMerge(smach.State):
     """
 
     """
-
     def __init__(self):
         smach.State.__init__(self, outcomes=['back_to_normal', 'break'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2226,13 +2247,17 @@ class ExecuteMerge(smach.State):
                                                            available_lanes, target_lane_id, next_lane_id)
             is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
             if is_ready == True:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+                # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
                 output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                               selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
             else:
                 speed_upper_limit = 0
-                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path = [],
                               selected_parking_lot=[], reference_gear=reference_gear, ready_to_go = ready_to_go)
                 return 'break'
             end_time = rospy.get_time()
@@ -2275,7 +2300,8 @@ class DriveAlongLane(smach.State):
                                                                        target_lane_id)
             rospy.loginfo("speed upper %f" % speed_upper_limit)
             rospy.loginfo("speed lower %f" % speed_lower_limit)
-
+            if target_lane_id == -1:
+                continue
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
@@ -2497,8 +2523,10 @@ class PoseCheck(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in PoseCheck")
-        pass
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in PoseCheck")
+            if 1:
+                return 'okay'
 
 
 class RePark(smach.State):
@@ -2511,8 +2539,9 @@ class RePark(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in RePark")
-        pass
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in RePark")
+            pass
 
 
 class AwaitMission(smach.State):
@@ -2525,8 +2554,15 @@ class AwaitMission(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in AwaitMission")
-        pass
+
+        mission_finished_caller()
+
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in AwaitMission")
+            if mission_ahead == None:
+                continue
+            else:
+                return 'continue'
 
 
 class MarkParkingSpot(smach.State):
@@ -2635,7 +2671,7 @@ class StopImmediately(smach.State):
 #########################################
 class EmergencyBrake(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['brakeOn', 'brakeOff'],
+        smach.State.__init__(self, outcomes=['brakeOn'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2643,13 +2679,16 @@ class EmergencyBrake(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in EmergencyBrake")
-        pass
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in EmergencyBrake")
+            if lane_list == {}:
+                print("emergency brake")
+            rospy.sleep(DECISION_PERIOD)
 
 
 class Await(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['continue'],
+        smach.State.__init__(self, outcomes=['brakeOff'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2733,7 +2772,7 @@ def main():
                 smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions={'in_lane_driving': 'LANE_FOLLOW',
                                                                                     'merge_and_across': 'MERGE_AND_ACROSS'})
 
-                sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across'],
+                sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across', 'finished'],
                                                              input_keys=['lane_list',
                                                                          'obstacles_list', 'signs_data', 'lights_list',
                                                                          'pose_data', 'parking_slots_list'],
@@ -2746,7 +2785,8 @@ def main():
                                                                                             'intersection': 'intersection',
                                                                                             'merge_and_across': 'merge_and_across',
                                                                                             'need_to_change_lane': 'LANE_CHANGE_PREPARING',
-                                                                                            'error': 'ERROR_RECOVERY'})
+                                                                                            'error': 'ERROR_RECOVERY',
+                                                                                            'finished': 'finished'})
                     smach.StateMachine.add('LANE_CHANGE_PREPARING', LaneChangePreparing(),
                                            transitions={'cancel_intention': 'IN_LANE_DRIVING',
                                                         'ready_to_change_lane': 'LANE_CHANGING'})
@@ -2777,7 +2817,8 @@ def main():
                                            transitions={'back_to_normal': 'IN_LANE_DRIVING'})
                 smach.StateMachine.add('LANE_FOLLOW', sm_scenario_lane_follow, transitions={'park': 'PARK',
                                                                                             'intersection': 'INTERSECTION',
-                                                                                            'merge_and_across': 'MERGE_AND_ACROSS'})
+                                                                                            'merge_and_across': 'MERGE_AND_ACROSS',
+                                                                                            'finished': 'STARTUP'})
 
                 sm_scenario_intersection = smach.StateMachine(outcomes=['succeeded'],
                                                               input_keys=['lane_list',
@@ -2879,12 +2920,11 @@ def main():
             #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
             # smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
-            # sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
-            # with sm_emergency_brake:
-            #     smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'STOP'})
-            #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'AWAIT'})
-            #     smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
-            # smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
+            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
+            with sm_emergency_brake:
+                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'STOP'})
+                smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
+            smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
 
         smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions={'outcome5': 'FINITE_STATE_MACHINE'})
 
