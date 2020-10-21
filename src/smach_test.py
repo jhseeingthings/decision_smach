@@ -85,25 +85,6 @@ OVERTAKE = 1
 GIVE_WAY = 2
 AVOID_COLLISION = 3
 
-mission_ahead = None
-global_pose_data = None
-lane_list = {}
-obstacles_list = {}
-signs_data = {}
-lights_list = {}
-parking_slots_list = {}
-planning_feedback = 0
-reference_gear = 0
-current_gear = 0
-
-mission_completed = 0
-
-target_parking_slot = []
-target_parking_slot_center = []
-parking_lane_id = 0
-
-ready_to_go = 0
-
 PREDICTION_DURATION = 5
 PREDICTION_PERIOD = 0.1
 
@@ -123,221 +104,27 @@ TIME_SPACE = 1
 
 MIN_DISTANCE_GAP = 5  # One car length
 
-# decision output message handler
-decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
-# re global planning service handler
-rospy.wait_for_service('re_global_planning')
-re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
-# mission done - service handler
-rospy.wait_for_service('current_mission_finished')
-current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
 
+mission_ahead = None
+global_pose_data = None
+lane_list = {}
+obstacles_list = {}
+signs_data = {}
+lights_list = {}
+parking_slots_list = {}
+planning_feedback = 0
+reference_gear = 0
+current_gear = 0
 
-def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
-    """
-    左负右正，cur_yaw 为弧度值
-    project the point onto the current lane.
-    :param map_x: a set of lane points (x coordination)
-    :param map_y: a set of lane points (y coordination)
-    :param map_num:
-    :param cur_x: point x coordination
-    :param cur_y: point y coordination
-    :param cur_yaw: default value is 0, for mass points projection.
-    :param type:
-    :return:
-        projection_x,
-        projection_y,
-        index, the projection point is in [index, index + 1]
-        lateral_distance, lateral projection distance, positive on the left
-        dir_diff_signed,
-        before_length, longitudinal projection distance
-        after_length
-    """
-    projection_x = 0
-    projection_y = 0
-    index = -1
-    min_distance = 100000.0
-    s_total = 0
-    before_length = 0
-    after_length = 0
-    for i in range(map_num - 1):
-        # a vector of one section in the way
-        vec_section = np.array([map_x[i + 1] - map_x[i], map_y[i + 1] - map_y[i]])
-        # a vector pointing from the start point of the section to the query point
-        vec_point = np.array([cur_x - map_x[i], cur_y - map_y[i]])
-        # calculate the projected point on the section as a 0~1 value with respect to the section length
-        section_length = np.linalg.norm(vec_section)
-        section_length_squared = section_length * section_length
-        k = np.dot(vec_section, vec_point) / section_length_squared
+mission_completed = 0
 
-        # if the projected point it outside the section, project it to the ends.
-        if k >= 1.0:
-            temp_projection_x = map_x[i + 1]
-            temp_projection_y = map_y[i + 1]
-        elif k <= 0.0:
-            temp_projection_x = map_x[i]
-            temp_projection_y = map_y[i]
-        # else, project it perpendicularly.
-        else:
-            temp_projection_x = map_x[i] + k * vec_section[0]
-            temp_projection_y = map_y[i] + k * vec_section[1]
+target_parking_slot = []
+target_parking_slot_center = []
+parking_lane_id = 0
 
-        vec_offset = np.array([temp_projection_x - cur_x, temp_projection_y - cur_y])
-        section_distance = np.linalg.norm(vec_offset)
-        # record the minimum distance
-        if section_distance < min_distance:
-            min_distance = section_distance
-            projection_x = temp_projection_x
-            projection_y = temp_projection_y
-            index = i
+ready_to_go = 0
 
-    # offset (lateral distance) with direction
-    vec_section = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
-    vec_point = np.array([cur_x - map_x[index], cur_y - map_y[index]])
-    dir_temp = vec_section[1] * vec_point[0] - vec_section[0] * vec_point[1]
-    if dir_temp < 0.0:
-        dir_flag = -1.0
-    elif dir_temp > 0.0:
-        dir_flag = 1.0
-    else:
-        dir_flag = 0.0
-    lateral_distance = dir_flag * min_distance
-
-    # signed direction difference
-    if cur_yaw == 0:
-        dir_diff_signed = 0
-    else:
-        vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
-        vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
-        dir_diff = math.acos(
-            np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
-        dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
-        if dir_temp < 0.0:
-            dir_flag = -1.0
-        elif dir_temp > 0.0:
-            dir_flag = 1.0
-        else:
-            dir_flag = 0.0
-        dir_diff_signed = dir_flag * dir_diff
-
-    for j in range(0, index):
-        before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
-    for j in range(index + 1, map_num - 1):
-        after_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
-    before_length += math.sqrt(math.pow(projection_x - map_x[index], 2) + math.pow(projection_y - map_y[index], 2))
-    after_length += math.sqrt(
-        math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
-
-    return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
-
-
-def road_callback(road_msg):
-    global lane_list
-    road_data = road_msg
-    lane_list = {}  # {'id':'lane'}
-    for k in range(len(road_data.lanes)):
-        lane_list[road_data.lanes[k].id] = road_data.lanes[k]
-    # rospy.loginfo('map_data_updated')
-
-
-def global_pose_callback(global_pose_msg):
-    global global_pose_data
-    global_pose_data = global_pose_msg
-    # rospy.loginfo('pose_data_updated')
-
-
-def lights_callback(lights_msg):
-    global lights_list
-    lights_list = {}
-    for light in lights_msg.lights:
-        lights_list[light.lightType] = light
-    # rospy.loginfo('lights_data_updated')
-
-
-def signs_callback(signs_msg):
-    global signs_data
-    signs_data = signs_msg
-    rospy.loginfo('signs_data_updated')
-
-
-def obstacles_callback(obstacles_msg):
-    global obstacles_list
-    # record road data of the current moment.
-    temp_lane_info = lane_list
-    # reset the if_tracked tag
-    for k in obstacles_list.keys():
-        obstacles_list[k].if_tracked = 0
-
-    for i in range(len(obstacles_msg.obstacles)):
-        # update old obstacles
-        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
-            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
-        # generate new obstacle
-        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
-            temp_obstacle = DecisionObstacle(obstacles_msg.obstacles[i], temp_lane_info)
-            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
-
-    for k in list(obstacles_list.keys()):
-        if obstacles_list[k].if_tracked == 0:
-            del obstacles_list[k]
-    # rospy.loginfo('obstacles_data_updated')
-
-
-def things_callback(things_msg):
-    global parking_slots_list
-    things_data = things_msg
-    parking_slots_list = {}
-    for k in things_data.things:
-        if k.type == "parkingSlot":
-            parking_slots_list[k.id] = k.points
-
-
-def mission_callback(mission_msg):
-    global mission_ahead
-    mission_ahead = MissionAhead()
-    mission_ahead.missionType = mission_msg.destinationTypes[0]
-    mission_ahead.missionLaneIds = mission_msg.firstMissionDestinationWayIds
-    mission_ahead.missionLocationX = mission_msg.firstDestinationMapX
-    mission_ahead.missionLocationY = mission_msg.firstDestinationMapY
-
-
-def gear_callback(gear_msg):
-    global current_gear
-    current_gear = gear_msg.currentGear
-
-
-def listener():
-    # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
-    # rospy.init_node('listener', anonymous = True)
-
-    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
-    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_road", Road, road_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("gear_feedback", ControlFeedback, gear_callback, queue_size=1, buff_size=5000000)
-
-    # spin() simply keeps python from exiting until this node is stopped
-    # rospy.spin()
-    # 只 spin 有 callback 的语句
-
-
-def planning_feedback_callback(plan_request):
-#    rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
-    global planning_feedback
-    planning_feedback = plan_request.planningFeedback
-    if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
-        global reference_gear
-        reference_gear = planning_feedback
-    return PlanningFeedbackResponse(1)
-
-
-def server():
-    rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
-    # rospy.spin()
+history_lane_ids = []
 
 
 class Pose:
@@ -347,10 +134,11 @@ class Pose:
         self.mapHeading = 0
 
 
-
-# update lane information, triggered when the global pose is updated.
-# 记录关于当前车道的动态信息
 class CurrentLaneInfo:
+    """
+    update lane information, triggered when the global pose is updated.
+    记录关于当前车道的动态信息
+    """
     def __init__(self):
         # id 为正数说明又车道
         self.cur_lane_id = -1
@@ -720,6 +508,235 @@ class MissionAhead:
         self.missionLocationX = 0
         self.missionLocationY = 0
         self.missionLaneIds = []
+        self.missionIndex = 0
+        self.missionThingId = 0
+
+
+# decision output message handler
+decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
+# re global planning service handler
+rospy.wait_for_service('re_global_planning')
+re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
+# mission done - service handler
+rospy.wait_for_service('current_mission_finished')
+current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
+
+
+def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
+    """
+    左负右正，cur_yaw 为弧度值
+    project the point onto the current lane.
+    :param map_x: a set of lane points (x coordination)
+    :param map_y: a set of lane points (y coordination)
+    :param map_num:
+    :param cur_x: point x coordination
+    :param cur_y: point y coordination
+    :param cur_yaw: default value is 0, for mass points projection.
+    :param type:
+    :return:
+        projection_x,
+        projection_y,
+        index, the projection point is in [index, index + 1]
+        lateral_distance, lateral projection distance, positive on the left
+        dir_diff_signed,
+        before_length, longitudinal projection distance
+        after_length
+    """
+    projection_x = 0
+    projection_y = 0
+    index = -1
+    min_distance = 100000.0
+    s_total = 0
+    before_length = 0
+    after_length = 0
+    for i in range(map_num - 1):
+        # a vector of one section in the way
+        vec_section = np.array([map_x[i + 1] - map_x[i], map_y[i + 1] - map_y[i]])
+        # a vector pointing from the start point of the section to the query point
+        vec_point = np.array([cur_x - map_x[i], cur_y - map_y[i]])
+        # calculate the projected point on the section as a 0~1 value with respect to the section length
+        section_length = np.linalg.norm(vec_section)
+        section_length_squared = section_length * section_length
+        k = np.dot(vec_section, vec_point) / section_length_squared
+
+        # if the projected point it outside the section, project it to the ends.
+        if k >= 1.0:
+            temp_projection_x = map_x[i + 1]
+            temp_projection_y = map_y[i + 1]
+        elif k <= 0.0:
+            temp_projection_x = map_x[i]
+            temp_projection_y = map_y[i]
+        # else, project it perpendicularly.
+        else:
+            temp_projection_x = map_x[i] + k * vec_section[0]
+            temp_projection_y = map_y[i] + k * vec_section[1]
+
+        vec_offset = np.array([temp_projection_x - cur_x, temp_projection_y - cur_y])
+        section_distance = np.linalg.norm(vec_offset)
+        # record the minimum distance
+        if section_distance < min_distance:
+            min_distance = section_distance
+            projection_x = temp_projection_x
+            projection_y = temp_projection_y
+            index = i
+
+    # offset (lateral distance) with direction
+    vec_section = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+    vec_point = np.array([cur_x - map_x[index], cur_y - map_y[index]])
+    dir_temp = vec_section[1] * vec_point[0] - vec_section[0] * vec_point[1]
+    if dir_temp < 0.0:
+        dir_flag = -1.0
+    elif dir_temp > 0.0:
+        dir_flag = 1.0
+    else:
+        dir_flag = 0.0
+    lateral_distance = dir_flag * min_distance
+
+    # signed direction difference
+    if cur_yaw == 0:
+        dir_diff_signed = 0
+    else:
+        vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
+        vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
+        dir_diff = math.acos(
+            np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
+        dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
+        if dir_temp < 0.0:
+            dir_flag = -1.0
+        elif dir_temp > 0.0:
+            dir_flag = 1.0
+        else:
+            dir_flag = 0.0
+        dir_diff_signed = dir_flag * dir_diff
+
+    for j in range(0, index):
+        before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    for j in range(index + 1, map_num - 1):
+        after_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
+    before_length += math.sqrt(math.pow(projection_x - map_x[index], 2) + math.pow(projection_y - map_y[index], 2))
+    after_length += math.sqrt(
+        math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
+
+    return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
+
+
+def road_callback(road_msg):
+    global lane_list
+    road_data = road_msg
+    lane_list = {}  # {'id':'lane'}
+    for k in range(len(road_data.lanes)):
+        lane_list[road_data.lanes[k].id] = road_data.lanes[k]
+    # rospy.loginfo('map_data_updated')
+
+
+def global_pose_callback(global_pose_msg):
+    global global_pose_data
+    global_pose_data = global_pose_msg
+    # rospy.loginfo('pose_data_updated')
+
+
+def lights_callback(lights_msg):
+    global lights_list
+    lights_list = {}
+    for light in lights_msg.lights:
+        lights_list[light.lightType] = light
+    # rospy.loginfo('lights_data_updated')
+
+
+def signs_callback(signs_msg):
+    global signs_data
+    signs_data = signs_msg
+    rospy.loginfo('signs_data_updated')
+
+
+def obstacles_callback(obstacles_msg):
+    global obstacles_list
+    # record road data of the current moment.
+    temp_lane_info = lane_list
+    # reset the if_tracked tag
+    for k in obstacles_list.keys():
+        obstacles_list[k].if_tracked = 0
+
+    for i in range(len(obstacles_msg.obstacles)):
+        # update old obstacles
+        if obstacles_msg.obstacles[i].id in obstacles_list.keys():
+            obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+        # generate new obstacle
+        if obstacles_msg.obstacles[i].id not in obstacles_list.keys():
+            temp_obstacle = DecisionObstacle(obstacles_msg.obstacles[i], temp_lane_info)
+            obstacles_list[obstacles_msg.obstacles[i].id] = temp_obstacle
+
+    for k in list(obstacles_list.keys()):
+        if obstacles_list[k].if_tracked == 0:
+            del obstacles_list[k]
+    # rospy.loginfo('obstacles_data_updated')
+
+
+def things_callback(things_msg):
+    global parking_slots_list
+    things_data = things_msg
+    parking_slots_list = {}
+    # type: parkingArea, parkingSlot
+    for k in things_data.things:
+        if k.type == "parkingSlot":
+            parking_slots_list[k.id] = k.points
+
+
+
+# mission的type有值，找到mission所在的lane id，当车开到目标车道时，开始考虑任务
+# 如果是park任务，找到mission的thingid在thing中对应的type
+# 如果是parkingArea，则从mission的位置开始从things中选择目标车位，
+# 如果是parkingslot，则停到对应的id的车位
+
+def mission_callback(mission_msg):
+    global mission_ahead
+    mission_ahead = MissionAhead()
+    # road, park, point
+    mission_ahead.missionType = mission_msg.destinationTypes[0]
+    mission_ahead.missionLaneIds = mission_msg.firstMissionDestinationWayIds
+    mission_ahead.missionLocationX = mission_msg.firstDestinationMapX
+    mission_ahead.missionLocationY = mission_msg.firstDestinationMapY
+    mission_ahead.missionIndex = mission_msg.currentMissionIndex
+    mission_ahead.missionThingId = mission_msg.firstDestinationThingId
+
+
+def gear_callback(gear_msg):
+    global current_gear
+    current_gear = gear_msg.currentGear
+
+
+def listener():
+    # 注意node的名字得独一无二，但是topic的名字得和你想接收的信息的topic一样！
+    # rospy.init_node('listener', anonymous = True)
+
+    # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
+    rospy.Subscriber("global_pose", GlobalPose, global_pose_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_road", Road, road_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("gear_feedback", ControlFeedback, gear_callback, queue_size=1, buff_size=5000000)
+
+    # spin() simply keeps python from exiting until this node is stopped
+    # rospy.spin()
+    # 只 spin 有 callback 的语句
+
+
+def planning_feedback_callback(plan_request):
+#    rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
+    global planning_feedback
+    planning_feedback = plan_request.planningFeedback
+    if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
+        global reference_gear
+        reference_gear = planning_feedback
+    return PlanningFeedbackResponse(1)
+
+
+def server():
+    rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
+    # rospy.spin()
 
 
 def compute_mean(nums, start, end):
@@ -1748,8 +1765,10 @@ class InLaneDriving(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in InLaneDriving")
 
-            if mission_ahead.missionType == 'park':
-                return 'park'
+            # 执行到当前mission的最后一段
+            if history_lane_ids[-1] in mission_ahead.missionLaneIds:
+                if mission_ahead.missionType == 'park':
+                    return 'park'
 
             blocked_lane_id_list = []
 
@@ -2286,6 +2305,7 @@ class DriveAlongLane(smach.State):
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
+
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
 
@@ -2321,7 +2341,6 @@ class DriveAlongLane(smach.State):
 
             if parking_slots_list != {}:
                 return 'enter_parking_zone'
-            print("no nono9999999999999999999999999999999999")
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2340,22 +2359,34 @@ class SelectParkingSpot(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in SelectParkingSpot")
 
+
             global target_parking_slot, target_parking_slot_center
             target_parking_slot = []
             target_parking_slot_center = []
-            point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
-            sum_x, sum_y = 0, 0
-            for i in range(len(point_list)):
-                temp_point = Point32()
-                temp_point.x = point_list[i][0]
-                temp_point.y = point_list[i][1]
-                temp_point.z = 0
-                sum_x += point_list[i][0]
-                sum_y += point_list[i][1]
-                target_parking_slot.append(temp_point)
-            target_parking_slot_center.append(sum_x / 4)
-            target_parking_slot_center.append(sum_y / 4)
-            return 'have_empty_slot'
+            if mission_ahead.missionThingId in parking_slots_list.keys():
+                target_parking_slot = parking_slots_list[mission_ahead.missionThingId]
+                sum_x, sum_y = 0, 0
+                for i in range(len(target_parking_slot)):
+                    sum_x += target_parking_slot[i][0]
+                    sum_y += target_parking_slot[i][1]
+                target_parking_slot_center.append(sum_x / 4)
+                target_parking_slot_center.append(sum_y / 4)
+                return 'have_empty_slot'
+            else:
+                # missionThing为“parkingArea" 选择车位
+                point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
+                sum_x, sum_y = 0, 0
+                for i in range(len(point_list)):
+                    temp_point = Point32()
+                    temp_point.x = point_list[i][0]
+                    temp_point.y = point_list[i][1]
+                    temp_point.z = 0
+                    sum_x += point_list[i][0]
+                    sum_y += point_list[i][1]
+                    target_parking_slot.append(temp_point)
+                target_parking_slot_center.append(sum_x / 4)
+                target_parking_slot_center.append(sum_y / 4)
+                return 'have_empty_slot'
 
 
 class DriveAndStopInFront(smach.State):
@@ -2476,9 +2507,9 @@ class ExecutePark(smach.State):
                                                   user_data.lane_list[parking_lane_id].points[project_result[2]].y),
                                                  (user_data.lane_list[parking_lane_id].points[project_result[2] + 1].x -
                                                  user_data.lane_list[parking_lane_id].points[project_result[2]].x))
-            print(virtual_pose.mapX)
-            print(virtual_pose.mapY)
-            print(virtual_pose.mapHeading)
+            # print(virtual_pose.mapX)
+            # print(virtual_pose.mapY)
+            # print(virtual_pose.mapHeading)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, virtual_pose)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
 
@@ -2572,6 +2603,27 @@ class AwaitMission(smach.State):
                 continue
             else:
                 return 'continue'
+
+
+# class OutOfParkingSlot(smach.State):
+#     def __init__(self):
+#         smach.State.__init__(self, outcomes=['continue'],
+#                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
+#                                          'lights_list', 'pose_data', 'parking_slots_list'],
+#                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
+#                                           'lights_list', 'pose_data', 'parking_slots_list']
+#                              )
+#
+#     def execute(self, user_data):
+#
+#         mission_finished_caller()
+#
+#         while not rospy.is_shutdown():
+#             rospy.loginfo("currently in AwaitMission")
+#             if mission_ahead == None:
+#                 continue
+#             else:
+#                 return 'continue'
 
 
 class MarkParkingSpot(smach.State):
@@ -2691,11 +2743,11 @@ class EmergencyBrake(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in EmergencyBrake")
             if lane_list == {}:
-                print("emergency brake")
+                rospy.loginfo("emergency brake because of no lane")
             rospy.sleep(DECISION_PERIOD)
 
 
-class Await(smach.State):
+class StopImmediately(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['brakeOff'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2705,8 +2757,9 @@ class Await(smach.State):
                              )
 
     def execute(self, user_data):
-        rospy.loginfo("currently in Await")
-        pass
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in Await")
+
 
 
 #########################################
@@ -2931,11 +2984,11 @@ def main():
             #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
             # smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
-#            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
-#            with sm_emergency_brake:
-#                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'AWAIT'})
-#                smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
-#            smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
+            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
+            with sm_emergency_brake:
+                smach.StateMachine.add('MOVING_FORWARD', EmergencyBrake(), transitions={'brakeOn': 'AWAIT'})
+                smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
+            smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
 
         smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions={'outcome5': 'FINITE_STATE_MACHINE'})
 
@@ -2974,92 +3027,4 @@ if __name__ == '__main__':
         name，观测服务器名字
         StateMachine，状态机
         level，状态机层级
-————————————————
-版权声明：本文为CSDN博主「white_Learner」的原创文章，遵循 CC 4.0 BY-SA 版权协议，转载请附上原文出处链接及本声明。
-原文链接：https://blog.csdn.net/Kalenee/java/article/details/89466999
-
 """
-
-"""
-msgs = Lights()
-    for direction,color in zip(directions,colors):  
-        #turn detection results into ros message  
-        msg = Light()   
-        msg.directionIndication=direction
-        msg.color = color          
-        msgs.lights.append(msg) 
-
-"""
-
-# 当前选择的车道在自车前方
-# elif vehicle_result[5] < 0.0001:
-#     for obstacle_index in obstacles_list.keys():
-#         temp_obstacle = obstacles_list[obstacle_index]
-#         if temp_obstacle.is_moving == 0:
-#             lateral_range = []
-#             longitudinal_range = []
-#             for point_index in temp_obstacle.cur_bounding_points:
-#                 result = lane_projection(points_x, points_y, points_num,
-#                                          temp_obstacle.cur_bounding_points[point_index][0],
-#                                          temp_obstacle.cur_bounding_points[point_index][1])
-#                 lateral_range.append(result[3])
-#                 longitudinal_range.append(result[5])
-#             lateral_min = min(lateral_range)
-#             lateral_max = max(lateral_range)
-#             longitudinal_min = min(longitudinal_range)
-#             longitudinal_max = max(longitudinal_range)
-#             # longitudinal condition
-#             if longitudinal_max > vehicle_result[5]:
-#                 if not(lateral_max<left_margin or lateral_min > right_margin):
-#                     if longitudinal_min < front_drivable_s:
-#                         front_drivable_s = longitudinal_min
-#             elif longitudinal_min < vehicle_result[5]:
-#                 if not(lateral_max<left_margin or lateral_min > right_margin):
-#                     if longitudinal_max > rear_drivable_s:
-#                         rear_drivable_s = longitudinal_max
-#     if front_drivable_s < vehicle_result[5]:
-#         front_drivable_length = 0
-#     else:
-#         front_drivable_length = front_drivable_s - vehicle_result[5]
-#     if rear_drivable_s > vehicle_result[5]:
-#         rear_drivable_length = 0
-#     else:
-#         rear_drivable_length = vehicle_result[5] - front_drivable_s
-# # 否则为已经过去的车道
-# else:
-#
-#     pass
-
-
-# lane_scale = np.arange(-temp_lane.width/2, temp_lane.width/2, 0.1)
-# lane_occupancy = np.zeros(len(lane_scale))
-#
-# for obstacle_index in obstacles_list.keys():
-#     temp_obstacle = obstacles_list[obstacle_index]
-#     if temp_obstacle.is_moving == 0:
-#         lateral_range = []
-#         for point_index in temp_obstacle.cur_bounding_points:
-#             result = lane_projection(points_x, points_y, points_num,
-#                                      temp_obstacle.cur_bounding_points[point_index][0],
-#                                      temp_obstacle.cur_bounding_points[point_index][1])
-#             # longitudinal condition
-#             if result[5] > lon_distance_interest:
-#                 # lateral condition
-#                 if abs(result[3]) < temp_lane.width / 2:
-#                     lateral_range.append(result[3])
-#         lateral_min = min(lateral_range)
-#         lateral_max = max(lateral_range)
-#         for i in range(len(lane_scale)):
-#             if lane_scale[i] > lateral_min and lane_scale[i] < lateral_max:
-#                 lane_occupancy[i] = 1
-# max_zeros_length = 0
-# temp_length = 0
-# for i in range(len(lane_occupancy)):
-#     if lane_occupancy[i] == 0:
-#         temp_length += 1
-#         if temp_length > max_zeros_length:
-#             max_zeros_length = temp_length
-#     else:
-#         temp_length = 0
-# if max_zeros_length * 0.1 > 1.1 * VEHICLE_WIDTH:
-#     available_lanes[lane_index] = temp_lane
