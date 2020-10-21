@@ -1765,10 +1765,18 @@ class InLaneDriving(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in InLaneDriving")
 
+
+            print(mission_ahead.missionLaneIds)
             # 执行到当前mission的最后一段
-            if history_lane_ids[-1] in mission_ahead.missionLaneIds:
-                if mission_ahead.missionType == 'park':
-                    return 'park'
+            if history_lane_ids != []:
+                print(history_lane_ids[-1])
+
+                print("9999999999999999999")
+                if history_lane_ids[-1] in mission_ahead.missionLaneIds:
+                    print("8888888888888888888")
+
+                    if mission_ahead.missionType == 'park':
+                        return 'park'
 
             blocked_lane_id_list = []
 
@@ -1778,6 +1786,11 @@ class InLaneDriving(smach.State):
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+            if history_lane_ids == []:
+                history_lane_ids.append(current_lane_info.cur_lane_id)
+            else:
+                if history_lane_ids[-1] != current_lane_info.cur_lane_id:
+                    history_lane_ids.append(current_lane_info.cur_lane_id)
             if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
                 # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
