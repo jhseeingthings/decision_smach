@@ -2376,17 +2376,22 @@ class SelectParkingSpot(smach.State):
             global target_parking_slot, target_parking_slot_center
             target_parking_slot = []
             target_parking_slot_center = []
+            print(parking_slots_list.keys())
+            print(mission_ahead.missionThingId)
             if mission_ahead.missionThingId in parking_slots_list.keys():
+                print("9999999999999999999999999999999999999999999")
                 target_parking_slot = parking_slots_list[mission_ahead.missionThingId]
                 sum_x, sum_y = 0, 0
                 for i in range(len(target_parking_slot)):
-                    sum_x += target_parking_slot[i][0]
-                    sum_y += target_parking_slot[i][1]
+                    sum_x += target_parking_slot[i].x
+                    sum_y += target_parking_slot[i].y
                 target_parking_slot_center.append(sum_x / 4)
                 target_parking_slot_center.append(sum_y / 4)
                 return 'have_empty_slot'
             else:
                 # missionThing为“parkingArea" 选择车位
+                print("44444444444444444444444444444444444")
+
                 point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
                 sum_x, sum_y = 0, 0
                 for i in range(len(point_list)):
@@ -2471,10 +2476,10 @@ class DriveAndStopInFront(smach.State):
             if math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2)) < 1.5:
                 return 'finished'
 
-#            print(project_result[0])
-#            print(project_result[1])
-#            print(target_parking_slot_center[0])
-#            print(target_parking_slot_center[1])
+            print(project_result[0])
+            print(project_result[1])
+            print(target_parking_slot_center[0])
+            print(target_parking_slot_center[1])
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=[], reference_gear=reference_gear, ready_to_go=ready_to_go)
@@ -2520,9 +2525,9 @@ class ExecutePark(smach.State):
                                                   user_data.lane_list[parking_lane_id].points[project_result[2]].y),
                                                  (user_data.lane_list[parking_lane_id].points[project_result[2] + 1].x -
                                                  user_data.lane_list[parking_lane_id].points[project_result[2]].x))
-            # print(virtual_pose.mapX)
-            # print(virtual_pose.mapY)
-            # print(virtual_pose.mapHeading)
+            print(virtual_pose.mapX)
+            print(virtual_pose.mapY)
+            print(virtual_pose.mapHeading)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, virtual_pose)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
 
