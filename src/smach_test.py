@@ -1650,7 +1650,7 @@ def re_global_planning_caller(blocked_id_list):
 
 def mission_finished_caller():
     try:
-        mission_planning_respond = current_mission_finished(1)
+        mission_planning_respond = current_mission_finished(mission_ahead.missionIndex)
         if mission_planning_respond.received == 1:
             return
     except rospy.ServiceException as exception:
