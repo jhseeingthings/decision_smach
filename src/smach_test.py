@@ -1584,7 +1584,7 @@ def speed_limit_decider(lane_list, current_lane_info, target_lane_id, action_dec
     return speed_upper_limit, speed_lower_limit
 
 
-def output_filler(scenario=0, filtered_obstacles=[], speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[]):
+def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[]):
     message = Decision()
     message.scenario = int(scenario)
     message.speedUpperLimit = speed_upper_limit
@@ -2700,10 +2700,10 @@ class ConditionJudge(smach.State):
 
     def execute(self, user_data):
         while not rospy.is_shutdown():
-            rospy.loginfo("currently in ConditionJudge")
-            if lane_list == {}:
-                rospy.loginfo("emergency brake because of no lane")
-                return 'brakeOn'
+            # rospy.loginfo("currently in ConditionJudge")
+            # if lane_list == {}:
+            #     rospy.loginfo("emergency brake because of no lane")
+            #     return 'brakeOn'
             rospy.sleep(DECISION_PERIOD)
 
 
@@ -2719,7 +2719,7 @@ class StopImmediately(smach.State):
     def execute(self, user_data):
         while not rospy.is_shutdown():
 
-            rospy.loginfo("currently in StopImmediately")
+            # rospy.loginfo("currently in StopImmediately")
             rospy.sleep(DECISION_PERIOD)
 
 
