@@ -61,13 +61,16 @@ NONE = 0
 RE_CHOOSE_PATH = 1
 RE_CHOOSE_PARKING_SPOT = 2
 PARKING_DONE = 3
+EXIT_PARKING_DONE = 4
 
 # 大决策：当前自车的行为
 # possible values
-PATH_FOLLOW = 1
-STOP = 2
-EMERGENCY_BRAKE = 3
-PARK = 4
+NONE = 0
+REF_PATH_FOLLOW = 1
+EMERGENCY_BRAKE = 2
+PARK = 3
+EXIT_PARK = 4
+UTURN = 5
 
 # 动静态障碍物
 # Is the obstacle static or dynamic?
@@ -108,6 +111,7 @@ obstacles_list = {}
 signs_data = {}
 lights_list = {}
 parking_slots_list = {}
+parking_area = {}
 planning_feedback = 0
 
 mission_completed = 0
@@ -592,8 +596,12 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     else:
         vec_map_dir = np.array([map_x[index + 1] - map_x[index], map_y[index + 1] - map_y[index]])
         vec_yaw_dir = np.array([math.cos(cur_yaw), math.sin(cur_yaw)])
-        dir_diff = math.acos(
-            np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir)))
+        cos_value = np.dot(vec_map_dir, vec_yaw_dir) / (np.linalg.norm(vec_map_dir) * np.linalg.norm(vec_yaw_dir))
+        if cos_value > 1:
+            cos_value = 1
+        if cos_value < -1:
+            cos_value = -1
+        dir_diff = math.acos(cos_value)
         dir_temp = vec_map_dir[1] * vec_yaw_dir[0] - vec_map_dir[0] * vec_yaw_dir[1]
         if dir_temp < 0.0:
             dir_flag = -1.0
@@ -667,13 +675,15 @@ def obstacles_callback(obstacles_msg):
 
 
 def things_callback(things_msg):
-    global parking_slots_list
+    global parking_slots_list, parking_area
     things_data = things_msg
     parking_slots_list = {}
     # type: parkingArea, parkingSlot
     for k in things_data.things:
         if k.type == "parkingSlot":
             parking_slots_list[k.id] = k.points
+        if k.type == "parkingArea":
+            parking_area[k.id] = k.points
 
 
 
@@ -713,7 +723,8 @@ def listener():
 
 
 def planning_feedback_callback(plan_request):
-#    rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
+    rospy.loginfo("5555555555555555555555555555555555")
+    rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
     global planning_feedback
     planning_feedback = plan_request.planningFeedback
     # if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
@@ -1053,7 +1064,6 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
     考虑进动态障碍物和静态障碍物
     :return: a set of available lanes
     """
-    print(available_lanes.keys())
     rospy.loginfo("available lane list %s " % list(available_lanes.keys()))
     temp_can_change_left = 1
     temp_can_change_right = 1
@@ -1254,14 +1264,15 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                 lane_drivable_length_ratio.append(0)
                 lane_efficiency.append(0)
                 lane_drivable_length.append(0)
-        rospy.loginfo(selectable_lanes)
-        rospy.loginfo(lane_priority)
-        rospy.loginfo(can_change_constraint)
-        rospy.loginfo(lane_reward)
-        rospy.loginfo(lane_efficiency)
-        rospy.loginfo(lane_efficiency_ratio)
-        rospy.loginfo(lane_drivable_length)
-        rospy.loginfo(lane_drivable_length_ratio)
+        # rospy.loginfo(selectable_lanes)
+        # rospy.loginfo(lane_priority)
+        # rospy.loginfo(can_change_constraint)
+        # rospy.loginfo(lane_reward)
+        # rospy.loginfo(lane_efficiency)
+        # rospy.loginfo(lane_efficiency_ratio)
+        # rospy.loginfo(lane_drivable_length)
+        # rospy.loginfo(lane_drivable_length_ratio)
+
         # 先判断是否需要强制性变道到优先级高的车道
         if cur_lane_info.dist_to_next_road < 100:
             # 条件有待确定
@@ -1667,6 +1678,10 @@ class StartupCheck(smach.State):
                                           'lights_list', 'pose_data', 'parking_slots_list'])
 
     def execute(self, user_data):
+        # clear the global variables
+        parking_lane_id = 0
+        target_parking_slot = []
+        target_parking_slot_center = []
 
         # reset the output
         while not rospy.is_shutdown():
@@ -1706,7 +1721,6 @@ class Startup(smach.State):
                              )
 
     def execute(self, user_data):
-        # 换挡，
         while not rospy.is_shutdown():
             rospy.loginfo("currently in Startup")
             output_filler(scenario=0)
@@ -1745,25 +1759,41 @@ class InLaneDriving(smach.State):
         """
         while not rospy.is_shutdown():
             rospy.loginfo("currently in InLaneDriving")
-
-
-            print(mission_ahead.missionLaneIds)
-            # 执行到当前mission的最后一段
-            if history_lane_ids != []:
-                print(history_lane_ids[-1])
-
-                print("9999999999999999999")
-                if history_lane_ids[-1] in mission_ahead.missionLaneIds:
-                    print("8888888888888888888")
-
-                    if mission_ahead.missionType == 'park':
-                        return 'park'
-
-            blocked_lane_id_list = []
-
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
+
+            rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
+            # 执行到当前mission的最后一段
+            if history_lane_ids != []:
+                print(history_lane_ids)
+                if history_lane_ids[-1] in mission_ahead.missionLaneIds:
+                    print(mission_ahead.missionLaneIds)
+                    if mission_ahead.missionType == 'park':
+                        if mission_ahead.missionThingId in parking_area.keys():
+                            sum_angle = 0
+                            target_parking_area = parking_area[mission_ahead.missionThingId]
+                            for i in range(len(target_parking_area)):
+                                vehicle_to_point1 = np.array([target_parking_area[i].x - user_data.pose_data.mapX,
+                                               target_parking_area[i].y - user_data.pose_data.mapY])
+                                vehicle_to_point2 = np.array([target_parking_area[i+1].x - user_data.pose_data.mapX,
+                                                             target_parking_area[i+1].y - user_data.pose_data.mapY])
+                                length1 = np.linalg.norm(vehicle_to_point1)
+                                length2 = np.linalg.norm(vehicle_to_point2)
+                                sum_angle += math.acos(np.dot(vehicle_to_point1, vehicle_to_point2) / (length1 * length2))
+                            if abs(sum_angle - 2 * math.pi) < EPS:
+                                return 'park'
+                        # 目标是固定的车位
+                        if mission_ahead.missionThingId in parking_slots_list.keys():
+                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId]
+                            for i in range(len(temp_parking_slot)):
+                                if math.sqrt(math.pow(user_data.pose_data.mapX - temp_parking_slot[i].x, 2) + math.pow(
+                                    user_data.pose_data.mapY - temp_parking_slot[i].y, 2)) < 30:
+                                    return 'park'
+
+            blocked_lane_id_list = []
+
+
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
@@ -2345,7 +2375,6 @@ class SelectParkingSpot(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in SelectParkingSpot")
 
-
             global target_parking_slot, target_parking_slot_center
             target_parking_slot = []
             target_parking_slot_center = []
@@ -2406,6 +2435,10 @@ class DriveAndStopInFront(smach.State):
         points_num = len(points_x)
         project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
                                          target_parking_slot_center[1])
+        rospy.loginfo("parking slot projection x %f" % project_result[0])
+        rospy.loginfo("parking slot projection y %f" % project_result[1])
+        rospy.loginfo("target parking slot center %f" % target_parking_slot_center[0])
+        rospy.loginfo("target parking slot center %f" % target_parking_slot_center[1])
 
         while not rospy.is_shutdown():
             rospy.loginfo("currently in DriveAndStopInFront")
@@ -2449,12 +2482,7 @@ class DriveAndStopInFront(smach.State):
             if math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2)) < 1.5:
                 return 'finished'
 
-            print(project_result[0])
-            print(project_result[1])
-            print(target_parking_slot_center[0])
-            print(target_parking_slot_center[1])
-            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2471,7 +2499,7 @@ class ExecutePark(smach.State):
                              )
 
     def execute(self, user_data):
-
+        # 计算目标车位中心点到泊车目标车位的投影点
         user_data_updater(user_data)
         temp_lane = user_data.lane_list[parking_lane_id]
         points_x, points_y = [], []
@@ -2482,26 +2510,24 @@ class ExecutePark(smach.State):
         project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
                                          target_parking_slot_center[1])
 
+        virtual_pose = Pose()
+        virtual_pose.mapX = project_result[0]
+        virtual_pose.mapY = project_result[1]
+        virtual_pose.mapHeading = math.atan2((temp_lane.points[project_result[2] + 1].y -
+                                              temp_lane.points[project_result[2]].y),
+                                             (temp_lane.points[project_result[2] + 1].x -
+                                              temp_lane.points[project_result[2]].x))
+        rospy.loginfo("virtual pose x %f" % virtual_pose.mapX)
+        rospy.loginfo("virtual pose y %f" % virtual_pose.mapY)
+        rospy.loginfo("virtual pose heading %f" % virtual_pose.mapHeading)
+
         while not rospy.is_shutdown():
             rospy.loginfo("currently in ExecutePark")
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
 
-
-
-            virtual_pose = Pose()
-            virtual_pose.mapX = project_result[0]
-            virtual_pose.mapY = project_result[1]
-            virtual_pose.mapHeading = math.atan2((user_data.lane_list[parking_lane_id].points[project_result[2]+1].y -
-                                                  user_data.lane_list[parking_lane_id].points[project_result[2]].y),
-                                                 (user_data.lane_list[parking_lane_id].points[project_result[2] + 1].x -
-                                                 user_data.lane_list[parking_lane_id].points[project_result[2]].x))
-            print(virtual_pose.mapX)
-            print(virtual_pose.mapY)
-            print(virtual_pose.mapHeading)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, virtual_pose)
-            rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
 
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, virtual_pose,
                                                                           user_data.obstacles_list, current_lane_info,
@@ -2510,13 +2536,9 @@ class ExecutePark(smach.State):
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
                                                                 current_lane_info, available_lanes)
-            rospy.loginfo("target lane id %d" % target_lane_id)
-            rospy.loginfo("next target lane id %d" % next_lane_id)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
                                                                        target_lane_id)
-            rospy.loginfo("speed upper %f" % speed_upper_limit)
-            rospy.loginfo("speed lower %f" % speed_lower_limit)
 
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
@@ -2525,17 +2547,13 @@ class ExecutePark(smach.State):
                 desired_length = min(desired_length,
                                      available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
 
             if planning_feedback == PARKING_DONE:
                 return 'succeeded'
 
-                # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(3, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+            output_filler(PARK, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
                           selected_parking_lot=target_parking_slot)
 
             end_time = rospy.get_time()
@@ -2586,34 +2604,87 @@ class AwaitMission(smach.State):
     def execute(self, user_data):
 
         mission_finished_caller()
-
+        rospy.sleep(10)
         while not rospy.is_shutdown():
             rospy.loginfo("currently in AwaitMission")
             if mission_ahead == None:
+                output_filler(scenario=0)
                 continue
             else:
                 return 'continue'
 
 
-# class OutOfParkingSlot(smach.State):
-#     def __init__(self):
-#         smach.State.__init__(self, outcomes=['continue'],
-#                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                          'lights_list', 'pose_data', 'parking_slots_list'],
-#                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                           'lights_list', 'pose_data', 'parking_slots_list']
-#                              )
-#
-#     def execute(self, user_data):
-#
-#         mission_finished_caller()
-#
-#         while not rospy.is_shutdown():
-#             rospy.loginfo("currently in AwaitMission")
-#             if mission_ahead == None:
-#                 continue
-#             else:
-#                 return 'continue'
+class ExitParkingSlot(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['back_to_lane'],
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_list', 'pose_data', 'parking_slots_list']
+                             )
+
+    def execute(self, user_data):
+        # 计算目标车位中心点到泊车目标车位的投影点
+        user_data_updater(user_data)
+        temp_lane = user_data.lane_list[parking_lane_id]
+        points_x, points_y = [], []
+        for j in range(len(temp_lane.points)):
+            points_x.append(temp_lane.points[j].x)
+            points_y.append(temp_lane.points[j].y)
+        points_num = len(points_x)
+        project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
+                                         target_parking_slot_center[1])
+
+        virtual_pose = Pose()
+        virtual_pose.mapX = project_result[0]
+        virtual_pose.mapY = project_result[1]
+        virtual_pose.mapHeading = math.atan2((temp_lane.points[project_result[2] + 1].y -
+                                              temp_lane.points[project_result[2]].y),
+                                             (temp_lane.points[project_result[2] + 1].x -
+                                              temp_lane.points[project_result[2]].x))
+        rospy.loginfo("virtual pose x %f" % virtual_pose.mapX)
+        rospy.loginfo("virtual pose y %f" % virtual_pose.mapY)
+        rospy.loginfo("virtual pose heading %f" % virtual_pose.mapHeading)
+
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in ExitParkingSlot")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, virtual_pose)
+
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, virtual_pose,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
+
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
+                                                                current_lane_info, available_lanes)
+
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
+                                                                       target_lane_id)
+
+            desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
+            # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
+            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
+                target_lane_id].front_drivable_length > EPS:
+                desired_length = min(desired_length,
+                                     available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+
+            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                           desired_length)
+
+            if planning_feedback == EXIT_PARKING_DONE:
+                return 'back_to_lane'
+
+            output_filler(EXIT_PARK, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path,
+                          selected_parking_lot=target_parking_slot)
+
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
 
 
 class MarkParkingSpot(smach.State):
@@ -2944,7 +3015,9 @@ def main():
                     smach.StateMachine.add('RE_PARK', RePark(),
                                            transitions={'succeeded': 'POSE_CHECK'})
                     smach.StateMachine.add('AWAIT_MISSION', AwaitMission(),
-                                           transitions={'continue': 'mission_continue'})
+                                           transitions={'continue': 'EXIT_PARKING_SPOT'})
+                    smach.StateMachine.add('EXIT_PARKING_SPOT', ExitParkingSlot(),
+                                           transitions={'back_to_lane': 'mission_continue'})
                     smach.StateMachine.add('MARK_PARKING_SPOT', MarkParkingSpot(),
                                            transitions={'succeeded': 'RETURN_TO_LANE'})
                     smach.StateMachine.add('RETURN_TO_LANE', ReturnToLane(),
