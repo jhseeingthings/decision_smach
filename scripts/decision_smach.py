@@ -216,10 +216,6 @@ class DecisionObstacle:
 
         self.cur_lane_id = 0
 
-        self.obstacle_update(obstacle_msg, lane_list)
-
-        # self.around_lanes = {}
-
         # 存储每一个时刻运动信息到当前所在车道的投影信息
         self.s_velocity = []
         self.l_velocity = []
@@ -236,6 +232,8 @@ class DecisionObstacle:
 
         self.sub_decision = 0
         self.safe_distance = 0
+
+        self.obstacle_update(obstacle_msg, lane_list)
 
     # update obstacles information, record the history movements of the obstacles.
     def obstacle_update(self, obstacle_msg, lane_list):
@@ -255,27 +253,29 @@ class DecisionObstacle:
         # record history trajectory for regular obstacles.
         if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
             self.detected_time.append(obstacle_msg.detectedTime)
-            self.history_velocity.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
-            cur_heading = math.atan(obstacle_msg.velocity.y / obstacle_msg.velocity.x)
-            self.history_heading.append(cur_heading)
-
             # calculate center point
             center_point_x = np.mean([point_i.x for point_i in obstacle_msg.points])
             center_point_y = np.mean([point_i.y for point_i in obstacle_msg.points])
             self.history_center_points.append([center_point_x, center_point_y])
 
-            project_heading = []
-            project_lateral = []
-            vec_heading = np.array([obstacle_msg.velocity.x, obstacle_msg.velocity.y])
-            vec_lateral = np.array([-obstacle_msg.velocity.y, obstacle_msg.velocity.x])
-            for point_i in obstacle_msg.points:
-                vec_point = np.array(
-                    [point_i.x - center_point_x, point_i.y - center_point_y])
-                project_heading.append(np.dot(vec_heading, vec_point) / np.linalg.norm(vec_heading))
-                project_lateral.append(np.dot(vec_lateral, vec_point) / np.linalg.norm(vec_lateral))
+            self.history_velocity.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
+            if self.cur_velocity > 0.1:
+                if obstacle_msg.velocity.x > EPS:
+                    cur_heading = math.atan(obstacle_msg.velocity.y / obstacle_msg.velocity.x)
+                    self.history_heading.append(cur_heading)
 
-            self.length = max(project_heading) - min(project_heading)
-            self.width = max(project_lateral) - min(project_lateral)
+                project_heading = []
+                project_lateral = []
+                vec_heading = np.array([obstacle_msg.velocity.x, obstacle_msg.velocity.y])
+                vec_lateral = np.array([-obstacle_msg.velocity.y, obstacle_msg.velocity.x])
+                for point_i in obstacle_msg.points:
+                    vec_point = np.array(
+                        [point_i.x - center_point_x, point_i.y - center_point_y])
+                    project_heading.append(np.dot(vec_heading, vec_point) / np.linalg.norm(vec_heading))
+                    project_lateral.append(np.dot(vec_lateral, vec_point) / np.linalg.norm(vec_lateral))
+
+                self.length = max(project_heading) - min(project_heading)
+                self.width = max(project_lateral) - min(project_lateral)
         # for other obstacles, update new information.
         else:
             self.detected_time.clear()
@@ -1766,9 +1766,7 @@ class InLaneDriving(smach.State):
             rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
             # 执行到当前mission的最后一段
             if history_lane_ids != []:
-                print(history_lane_ids)
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
-                    print(mission_ahead.missionLaneIds)
                     if mission_ahead.missionType == 'park':
                         if mission_ahead.missionThingId in parking_area.keys():
                             sum_angle = 0
@@ -1792,8 +1790,6 @@ class InLaneDriving(smach.State):
                                     return 'park'
 
             blocked_lane_id_list = []
-
-
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)

@@ -1,0 +1,4 @@
+<launch>
+    <node pkg="decision_smach" name="decision_smach" type="decision_smach.py" output="screen">
+    </node>
+</launch>
