@@ -101,8 +101,8 @@ TIME_DELAY = 1
 TIME_SPACE = 1
 # is defined as the minimum required temporal spacing between vehicles, where 1 s approximates a vehicle length per 10 mph.
 
-MIN_DISTANCE_GAP = 5  # One car length
-
+MIN_GAP_DISTANCE = 5  # One car length
+MIN_SAFE_DISTANCE = 0.5
 
 mission_ahead = None
 global_pose_data = None
@@ -170,6 +170,7 @@ class DrivableLanes:
         self.front_occupied = 0
         self.rear_drivable_length = 0
         self.driving_efficiency = 0
+        self.closest_static_object_type = 0
         self.closest_moving_object_distance = 0
         self.closest_moving_object_type = 0
 
@@ -212,6 +213,7 @@ class DecisionObstacle:
         self.detected_time = []
         self.history_center_points = []
         self.history_velocity = []
+        self.history_velocity_vec = []
         self.history_heading = []
 
         self.cur_lane_id = 0
@@ -235,14 +237,58 @@ class DecisionObstacle:
 
         self.obstacle_update(obstacle_msg, lane_list)
 
+        """
+        # The type of the obstacle.
+        # The value could be VEHICLE,  BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
+        string type
+        
+        # The size of the obstacle.
+        # The length should be the distance in the direction of heading.
+        # The width should be the distance perpendicular to the direction of heading.
+        float32 length
+        float32 width
+        
+        # The position of the boundary points on the obstacle.
+        # In the relative coordinate system, "x" points to the front, "y" points to the left, "z" points upwards.
+        # "z" may be not useful at this moment, and can be simply set as 0.
+        # In the absolute coordinate system, it should be consistent with the map.
+        geometry_msgs/Point32[] points
+        
+        # The estimated velocity of the obstacle.
+        # Use the same coordinate system as for "points".
+        geometry_msgs/Vector3 velocity
+        
+        # The predicted trajectory of the obstacle
+        geometry_msgs/Point32[] predictedCenterPointsTrajectory
+        
+        # The predicted heading angle of the obstacle.
+        float32[] predictedHeadings
+        
+        # Is the obstacle static or dynamic?
+        # True for a dynamic obstacle.
+        # False for a static obstacle.
+        bool isMoving
+        
+        # The reaction towards the obstacle.
+        int32 decision
+        int32 NONE=0
+        int32 OVERTAKE=1
+        int32 GIVEWAY=2
+        int32 BYPASS=3
+        
+        # A safe distance to be kept from the obstacle.
+        float32 safeDistance
+        """
+
+
+
     # update obstacles information, record the history movements of the obstacles.
     def obstacle_update(self, obstacle_msg, lane_list):
         # self.around_lanes = lane_list
         self.type = obstacle_msg.type
         self.if_tracked = 1
         self.cur_bounding_points = obstacle_msg.points
-            # [[obstacle_msg.points[i].x, obstacle_msg.points[i].y] for i in
-            #                         range(len(obstacle_msg.points))]
+
         self.cur_velocity_vec = obstacle_msg.velocity
         self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
         if self.cur_velocity > 0.1:
@@ -250,15 +296,20 @@ class DecisionObstacle:
         else:
             self.is_moving = 0
 
+
         # record history trajectory for regular obstacles.
         if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
             self.detected_time.append(obstacle_msg.detectedTime)
             # calculate center point
             center_point_x = np.mean([point_i.x for point_i in obstacle_msg.points])
             center_point_y = np.mean([point_i.y for point_i in obstacle_msg.points])
-            self.history_center_points.append([center_point_x, center_point_y])
-
-            self.history_velocity.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
+            center_point = Point32()
+            center_point.x = center_point_x
+            center_point.y = center_point_y
+            center_point.z = 0
+            self.history_center_points.append(center_point)
+            self.history_velocity.append(self.cur_velocity)
+            self.history_velocity_vec.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
             if self.cur_velocity > 0.1:
                 if obstacle_msg.velocity.x > EPS:
                     cur_heading = math.atan(obstacle_msg.velocity.y / obstacle_msg.velocity.x)
@@ -276,11 +327,16 @@ class DecisionObstacle:
 
                 self.length = max(project_heading) - min(project_heading)
                 self.width = max(project_lateral) - min(project_lateral)
+            else:
+                self.history_heading.append(0)
+                self.length = 0
+                self.width = 0
+
         # for other obstacles, update new information.
         else:
             self.detected_time.clear()
             self.history_center_points.clear()
-            self.history_velocity.clear()
+            self.history_velocity_vec.clear()
             self.history_heading.clear()
             self.detected_time.append(obstacle_msg.detectedTime)
 
@@ -311,8 +367,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
-                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1][0],
-                                         self.history_center_points[-1][1],
+                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
+                                         self.history_center_points[-1].y,
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
@@ -328,8 +384,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
-                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1][0],
-                                         self.history_center_points[-1][1],
+                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
+                                         self.history_center_points[-1].y,
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
@@ -346,8 +402,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
-                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1][0],
-                                         self.history_center_points[-1][1],
+                result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
+                                         self.history_center_points[-1].y,
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
@@ -376,18 +432,27 @@ class DecisionObstacle:
                 points_y.append(j.y)
             points_num = len(points_x)
             for i in range(len(self.history_center_points)):
-                result = lane_projection(points_x, points_y, points_num, self.history_center_points[i][0],
-                                         self.history_center_points[i][1],
+                result = lane_projection(points_x, points_y, points_num, self.history_center_points[i].x,
+                                         self.history_center_points[i].y,
                                          self.history_heading[i])
                 self.lane_lateral_diff.append(result[3])
                 self.dir_diff.append(result[4])
                 self.s_record.append(result[5])
                 self.history_lane_ids.append(self.cur_lane_id)
+
                 self.s_velocity.append(math.cos(result[4]) * self.history_velocity[i])
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
 
         else:
             pass
+
+    def obstacle_behavior_initialization(self):
+        self.predicted_center_points = []
+        self.predicted_headings = []
+        self.sub_decision = 0
+        self.safe_distance = MIN_SAFE_DISTANCE
+        self.predicted_headings.append(self.history_heading[-1])
+        self.predicted_center_points.append(self.history_center_points[-1])
 
     # predict the future intention of the obstacle
     def obstacle_intention_prediction(self, lane_list):
@@ -428,7 +493,7 @@ class DecisionObstacle:
                         vec_start_dir = np.array(
                             [lane_list[lead_to_ids[i]].points[3].y - lane_list[lead_to_ids[i]].points[0].y,
                              lane_list[lead_to_ids[i]].points[3].x - lane_list[lead_to_ids[i]].points[0].x])
-                        dir_diff = math.cos(np.dot(vec_end_dir, vec_start_dir) / (
+                        dir_diff = math.acos(np.dot(vec_end_dir, vec_start_dir) / (
                                     np.linalg.norm(vec_end_dir) * np.linalg.norm(vec_start_dir)))
                         if dir_diff < min_dir_diff:
                             min_dir_diff = dir_diff
@@ -450,8 +515,8 @@ class DecisionObstacle:
                 points_x.append(j.x)
                 points_y.append(j.y)
             points_num = len(points_x)
-            result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1][0],
-                                     self.history_center_points[-1][1],
+            result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
+                                     self.history_center_points[-1].y,
                                      self.history_heading[-1])
             temp_distance = result[3]
         else:
@@ -815,7 +880,6 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
         temp_point.x = x
         temp_point.y = y
         temp_point.z = 0
-        # ref_path.append([x, y, 0])
         ref_path.append(temp_point)
         temp_path_length += target_length
     else:
@@ -841,7 +905,6 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
                 temp_point.x = x
                 temp_point.y = y
                 temp_point.z = 0
-                # ref_path.append([x, y, 0])
                 ref_path.append(temp_point)
                 temp_path_length += target_seg_length
                 break
@@ -867,7 +930,6 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
                 temp_point.x = x
                 temp_point.y = y
                 temp_point.z = 0
-                # ref_path.append([x, y, 0])
                 ref_path.append(temp_point)
                 temp_path_length += target_seg_length
                 break
@@ -884,7 +946,7 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
 
 
 def desired_safety_distance(velocity):
-    return max(1, velocity * 3.6 / 10) * MIN_DISTANCE_GAP
+    return max(1, velocity * 3.6 / 10) * MIN_GAP_DISTANCE
 
 
 def user_data_updater(user_data):
@@ -1092,13 +1154,14 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
         temp_efficiency = 120
         moving_object_type = 0
-        moving_obstacle_s = front_drivable_s
+        moving_object_s = front_drivable_s
+        static_object_type = 0
         # define efficiency by the closest dynamic obstacle to the vehicle
 
         for obstacle_index in obstacles_list.keys():
             # print("into obstacles")
             temp_obstacle = obstacles_list[obstacle_index]
-            if temp_obstacle.is_moving == 0:
+            if temp_obstacle.is_moving == False:
                 lateral_range = []
                 longitudinal_range = []
                 for point in temp_obstacle.cur_bounding_points:
@@ -1116,6 +1179,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                     if not (lateral_max < left_margin or lateral_min > right_margin):
                         if longitudinal_min < front_drivable_s:
                             front_drivable_s = longitudinal_min
+                            static_object_type = temp_obstacle.type
                 elif longitudinal_min < vehicle_s:
                     if not (lateral_max < left_margin or lateral_min > right_margin):
                         if longitudinal_max > rear_drivable_s:
@@ -1130,11 +1194,11 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
             else:
                 # 找车前最近的在车道上的动态障碍物的速度
                 if temp_obstacle.cur_lane_id == lane_index:
-                    if temp_obstacle.s_record[-1] > vehicle_s and temp_obstacle.s_record[-1] < moving_obstacle_s:
-                        moving_obstacle_s = temp_obstacle.s_record[-1]
+                    if temp_obstacle.s_record[-1] > vehicle_s and temp_obstacle.s_record[-1] < moving_object_s:
+                        moving_object_s = temp_obstacle.s_record[-1]
+                        # print(temp_obstacle.s_velocity)
                         temp_efficiency = temp_obstacle.s_velocity[-1]
                         moving_object_type = temp_obstacle.type
-
 
         if front_drivable_s < vehicle_s:
             front_drivable_length = 0
@@ -1152,7 +1216,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         if rear_drivable_length > OBSERVE_RANGE:
             rear_drivable_length = OBSERVE_RANGE
 
-        moving_obstacle_distance = moving_obstacle_s - vehicle_s
+        moving_obstacle_distance = moving_object_s - vehicle_s
         moving_obstacle_distance = min(front_drivable_length , moving_obstacle_distance)
 
         if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
@@ -1164,6 +1228,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         temp_drivable_lane.front_drivable_length = front_drivable_length
         temp_drivable_lane.rear_drivable_length = rear_drivable_length
         temp_drivable_lane.driving_efficiency = lane_efficiency
+        temp_drivable_lane.closest_static_object_type = static_object_type
         temp_drivable_lane.closest_moving_object_distance = moving_obstacle_distance
         temp_drivable_lane.closest_moving_object_type = moving_object_type
 
@@ -1264,14 +1329,14 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                 lane_drivable_length_ratio.append(0)
                 lane_efficiency.append(0)
                 lane_drivable_length.append(0)
-        # rospy.loginfo(selectable_lanes)
-        # rospy.loginfo(lane_priority)
-        # rospy.loginfo(can_change_constraint)
-        # rospy.loginfo(lane_reward)
-        # rospy.loginfo(lane_efficiency)
-        # rospy.loginfo(lane_efficiency_ratio)
-        # rospy.loginfo(lane_drivable_length)
-        # rospy.loginfo(lane_drivable_length_ratio)
+        rospy.loginfo(selectable_lanes)
+        rospy.loginfo("lane_priority %s" % list(lane_priority))
+        rospy.loginfo(can_change_constraint)
+        rospy.loginfo(lane_reward)
+        rospy.loginfo(lane_efficiency)
+        rospy.loginfo(lane_efficiency_ratio)
+        rospy.loginfo(lane_drivable_length)
+        rospy.loginfo(lane_drivable_length_ratio)
 
         # 先判断是否需要强制性变道到优先级高的车道
         if cur_lane_info.dist_to_next_road < 100:
@@ -1498,7 +1563,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
                         else:
                             # 其余属于感兴趣区域内的同向动态障碍物，小决策置超车
                             obstacle_info.sub_decision = 1
-                            obstacle_info.safe_distance = MIN_DISTANCE_GAP
+                            obstacle_info.safe_distance = MIN_GAP_DISTANCE
         if min_time < action_time:
             is_ready = False
     return is_ready, obstacles_list
@@ -1570,7 +1635,10 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_i
 
 
 def obstacle_of_interest_selector(obstacles_list):
-    pass
+    for i in obstacles_list.keys():
+        temp_obstacle = obstacles_list[i]
+        if temp_obstacle.is_moving == True:
+            temp_obstacle.obstacle_behavior_initialization()
 
 
 def speed_limit_decider(lane_list, current_lane_info, target_lane_id, action_decelerate=-1, merge_decelerate=-1):
@@ -1613,18 +1681,16 @@ def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_
         filtered_obstacle.isMoving = obstacle.is_moving
         filtered_obstacle.decision = obstacle.sub_decision
         filtered_obstacle.safeDistance = obstacle.safe_distance
-        for point in obstacle.predicted_center_points:
-            temp_point = Point32()
-            temp_point.x = point[0]
-            temp_point.y = point[1]
-            temp_point.z = 0
-            filtered_obstacle.predictedCenterPointsTrajectory.append(temp_point)
-        for heading in obstacle.predicted_headings:
-            temp_heading = Point32()
-            temp_heading.x = heading[0]
-            temp_heading.y = heading[1]
-            temp_heading.z = 0
-            filtered_obstacle.predictedHeadings.append(temp_heading)
+        filtered_obstacle.predictedCenterPointsTrajectory = obstacle.predicted_center_points
+        filtered_obstacle.predictedHeadings = obstacle.predicted_headings
+        # for point in obstacle.predicted_center_points:
+        #     temp_point = Point32()
+        #     temp_point.x = point[0]
+        #     temp_point.y = point[1]
+        #     temp_point.z = 0
+        #     filtered_obstacle.predictedCenterPointsTrajectory.append(temp_point)
+        # for heading in obstacle.predicted_headings:
+        #     filtered_obstacle.predictedHeadings.append(heading)
         filtered_obstacles_list.append(filtered_obstacle)
     message.filteredObstacles = filtered_obstacles_list
 
@@ -1778,7 +1844,12 @@ class InLaneDriving(smach.State):
                                                              target_parking_area[i+1].y - user_data.pose_data.mapY])
                                 length1 = np.linalg.norm(vehicle_to_point1)
                                 length2 = np.linalg.norm(vehicle_to_point2)
-                                sum_angle += math.acos(np.dot(vehicle_to_point1, vehicle_to_point2) / (length1 * length2))
+                                cos_value = np.dot(vehicle_to_point1, vehicle_to_point2) / (length1 * length2)
+                                if cos_value > 1:
+                                    cos_value = 1
+                                if cos_value < -1:
+                                    cos_value = -1
+                                sum_angle += math.acos(cos_value)
                             if abs(sum_angle - 2 * math.pi) < EPS:
                                 return 'park'
                         # 目标是固定的车位
@@ -1812,28 +1883,32 @@ class InLaneDriving(smach.State):
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            if target_lane_id != current_lane_info.cur_lane_id:
+                return 'need_to_change_lane'
+
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, current_lane_info,
                                                                        target_lane_id)
             rospy.loginfo("speed upper %f" % speed_upper_limit)
             rospy.loginfo("speed lower %f" % speed_lower_limit)
 
-            desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
-            # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
-            if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
-                if available_lanes[target_lane_id].closest_moving_object_type != 'VEHICLE':
-                        pass
-                else:
-                    desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
-
+            desired_length = 0
             if target_lane_id != -1:
+                desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
+                # if there is a static obstacle in the way
+                if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
+                    # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
+                    if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
+                            pass
+                    else:
+                        desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
+
+                # if the target lane is beyond search, stop providing reference path.
                 if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
                     desired_length = 0
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-
-            if target_lane_id != current_lane_info.cur_lane_id:
-                return 'need_to_change_lane'
+                rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
+                rospy.loginfo("desired length %f" % desired_length)
 
             # 避免找到身后的目标路径
             if desired_length > 0:
@@ -1841,6 +1916,8 @@ class InLaneDriving(smach.State):
                                                    desired_length)
             else:
                 reference_path = []
+
+            obstacle_of_interest_selector(user_data.obstacles_list)
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
@@ -2091,7 +2168,7 @@ class ApproachIntersection(smach.State):
                     pass
                 else:
                     desired_length = min(desired_length,
-                                         available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+                                         available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -2210,7 +2287,7 @@ class CreepForOpportunity(smach.State):
                 # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
                 if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                     target_lane_id].front_drivable_length > EPS:
-                    desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
+                    desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE
 
                 rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
                 rospy.loginfo("desired length %f" % desired_length)
@@ -2274,7 +2351,7 @@ class ExecuteMerge(smach.State):
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
-                desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP
+                desired_length = available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -2340,7 +2417,7 @@ class DriveAlongLane(smach.State):
             desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
             # if available_lanes[target_lane_id].after_length > available_lanes[target_lane_id].front_drivable_length:
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[target_lane_id].front_drivable_length > EPS:
-                desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+                desired_length = min(desired_length, available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
@@ -2465,7 +2542,7 @@ class DriveAndStopInFront(smach.State):
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
                 desired_length = min(desired_length,
-                                     available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+                                     available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
             if project_result[5] - available_lanes[target_lane_id].before_length < desired_length:
                 desired_length = project_result[5] - available_lanes[target_lane_id].before_length
@@ -2541,7 +2618,7 @@ class ExecutePark(smach.State):
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
                 desired_length = min(desired_length,
-                                     available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+                                     available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
@@ -2667,7 +2744,7 @@ class ExitParkingSlot(smach.State):
             if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
                 target_lane_id].front_drivable_length > EPS:
                 desired_length = min(desired_length,
-                                     available_lanes[target_lane_id].front_drivable_length - MIN_DISTANCE_GAP)
+                                     available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                            desired_length)
