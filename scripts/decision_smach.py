@@ -1854,6 +1854,7 @@ class InLaneDriving(smach.State):
                                 return 'park'
                         # 目标是固定的车位
                         if mission_ahead.missionThingId in parking_slots_list.keys():
+                            print("99999999999999999999999999999999999")
                             temp_parking_slot = parking_slots_list[mission_ahead.missionThingId]
                             for i in range(len(temp_parking_slot)):
                                 if math.sqrt(math.pow(user_data.pose_data.mapX - temp_parking_slot[i].x, 2) + math.pow(
@@ -2455,6 +2456,7 @@ class SelectParkingSpot(smach.State):
             print(mission_ahead.missionThingId)
             if mission_ahead.missionThingId in parking_slots_list.keys():
                 print("9999999999999999999999999999999999999999999")
+                print(mission_ahead.missionThingId)
                 target_parking_slot = parking_slots_list[mission_ahead.missionThingId]
                 sum_x, sum_y = 0, 0
                 for i in range(len(target_parking_slot)):
