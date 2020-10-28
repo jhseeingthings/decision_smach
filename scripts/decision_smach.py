@@ -234,7 +234,7 @@ class DecisionObstacle:
         self.predicted_headings = []
 
         self.sub_decision = 0
-        self.safe_distance = 0
+        self.safe_distance = MIN_SAFE_DISTANCE
 
         self.obstacle_update(obstacle_msg, lane_list)
 
@@ -450,8 +450,8 @@ class DecisionObstacle:
     def obstacle_behavior_initialization(self):
         self.predicted_center_points = []
         self.predicted_headings = []
-        self.sub_decision = 0
-        self.safe_distance = MIN_SAFE_DISTANCE
+        # self.sub_decision = 0
+        # self.safe_distance = MIN_SAFE_DISTANCE
         self.predicted_headings.append(self.history_heading[-1])
         self.predicted_center_points.append(self.history_center_points[-1])
 
@@ -1451,12 +1451,17 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
                 if obstacle_info.s_record[-1] < loi_info.end_s and obstacle_info.s_record[-1] > loi_info.start_s:
                     if obstacle_info.s_velocity[-1] > 0:
                         temp_time = (loi_info.end_s - obstacle_info.s_record[-1]) / obstacle_info.s_velocity[-1]
+                        rospy.loginfo("obstacle %d coming in %f seconds" % (obstacle_index, temp_time))
                         if temp_time < min_time:
                             min_time = temp_time
-                        else:
+                        if temp_time < action_time:
                             # 其余属于感兴趣区域内的同向动态障碍物，小决策置超车
-                            obstacle_info.sub_decision = 1
-                            obstacle_info.safe_distance = MIN_GAP_DISTANCE
+                            obstacle_info.sub_decision = GIVE_WAY
+                            obstacle_info.safe_distance = MIN_SAFE_DISTANCE
+                        else:
+                            obstacle_info.sub_decision = OVERTAKE
+                            obstacle_info.safe_distance = MIN_SAFE_DISTANCE
+
         if min_time < action_time:
             is_ready = False
     return is_ready, obstacles_list
@@ -1567,7 +1572,7 @@ def history_lanes_recorder(current_lane_id):
     else:
         if history_lane_ids[-1] != current_lane_id:
             history_lane_ids.append(current_lane_id)
-    print(history_lane_ids)
+    rospy.loginfo("the lanes that has passed through %s " % list(history_lane_ids))
 
 
 def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario = 'lane_follow'):
@@ -1591,6 +1596,9 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
             if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(
                     available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
                 desired_length = 0
+
+        rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
+        rospy.loginfo("desired length %f" % desired_length)
     return desired_length
 
 
@@ -1934,9 +1942,6 @@ class InLaneDriving(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-
             # 避免找到身后的目标路径
             if desired_length > 0:
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
@@ -2011,9 +2016,8 @@ class LaneChangePreparing(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-            # if target_lane_id == current_lane_info.cur_lane_id:
+            if target_lane_id == current_lane_info.cur_lane_id:
+                return 'cancel_intention'
 
             # 避免找到身后的目标路径
             if desired_length > 0:
@@ -2076,9 +2080,9 @@ class LaneChanging(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-            # if target_lane_id == current_lane_info.cur_lane_id:
+            if target_lane_id == current_lane_info.cur_lane_id:
+                return 'lane_change_completed'
+
             # 避免找到身后的目标路径
             if desired_length > 0:
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
@@ -2091,8 +2095,6 @@ class LaneChanging(smach.State):
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
 
-            if target_lane_id == current_lane_info.cur_lane_id:
-                return 'lane_change_completed'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
 
 
@@ -2207,14 +2209,9 @@ class ApproachIntersection(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-            if target_lane_id == current_lane_info.cur_lane_id:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                           desired_length)
 
-            elif target_lane_id != current_lane_info.cur_lane_id:
-                return 'need_to_change_lane'
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             end_time = rospy.get_time()
@@ -2327,9 +2324,6 @@ class CreepForOpportunity(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario='merge')
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge', available_lanes, target_lane_id, next_lane_id)
             is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
 
@@ -2398,9 +2392,6 @@ class ExecuteMerge(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
-
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                            available_lanes, target_lane_id, next_lane_id)
             is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
@@ -2466,9 +2457,6 @@ class DriveAlongLane(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
-
-            rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
-            rospy.loginfo("desired length %f" % desired_length)
 
             reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
                                                    desired_length)
