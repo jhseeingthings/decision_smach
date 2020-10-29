@@ -220,12 +220,12 @@ class DecisionObstacle:
         self.cur_lane_id = 0
 
         # 存储每一个时刻运动信息到当前所在车道的投影信息
+        self.s_record = []
         self.s_velocity = []
         self.l_velocity = []
         self.dir_diff = []
         self.lane_lateral_diff = []
         self.history_lane_ids = []
-        self.s_record = []
 
         self.target_lane_id = 0
         self.next_lane_id = 0
@@ -312,9 +312,8 @@ class DecisionObstacle:
             self.history_velocity.append(self.cur_velocity)
             self.history_velocity_vec.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
             if self.cur_velocity > 0.1:
-                if obstacle_msg.velocity.x > EPS:
-                    cur_heading = math.atan(obstacle_msg.velocity.y / obstacle_msg.velocity.x)
-                    self.history_heading.append(cur_heading)
+                cur_heading = math.atan2(obstacle_msg.velocity.y, obstacle_msg.velocity.x)
+                self.history_heading.append(cur_heading)
 
                 project_heading = []
                 project_lateral = []
@@ -443,7 +442,7 @@ class DecisionObstacle:
 
                 self.s_velocity.append(math.cos(result[4]) * self.history_velocity[i])
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
-
+            print(self.id, self.s_velocity)
         else:
             pass
 
@@ -795,15 +794,11 @@ def planning_feedback_callback(plan_request):
     rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
     global planning_feedback
     planning_feedback = plan_request.planningFeedback
-    # if planning_feedback == FORWARD_GEAR or planning_feedback == REVERSE_GEAR or planning_feedback == NEUTRAL_GEAR:
-    #     global reference_gear
-    #     reference_gear = planning_feedback
     return PlanningFeedbackResponse(1)
 
 
 def server():
     rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
-    # rospy.spin()
 
 
 def compute_mean(nums, start, end):
@@ -973,15 +968,6 @@ def current_lane_selector(lane_list, pose_data):
 
         cur_lane_info.dist_to_next_road = after_length[cur_lane_index]
 
-        # elif lane_list[lead_to_index].stopType != 0 and temp_lead_to_id != 0:
-        #     stop_line_x = lane_list[lead_to_index].nextStop.x
-        #     stop_line_y = lane_list[lead_to_index].nextStop.y
-        #     dist_section_1 = self.after_length[cur_lane_id]
-        #     dist_section_2 = math.sqrt(math.pow(stop_line_x - lane_list[cur_lane_id].points[-1].x, 2) + math.pow(
-        #         stop_line_y - lane_list[cur_lane_id].points[-1].y, 2))
-        #     self.dist_to_next_stop = dist_section_1 + dist_section_2
-        #     self.next_stop_type = lane_list[lead_to_index].stopType
-
         cur_lane_info.can_change_left = lane_list[cur_lane_id].canChangeLeft
         cur_lane_info.can_change_right = lane_list[cur_lane_id].canChangeRight
         cur_lane_info.speed_lower_limit = lane_list[cur_lane_id].speedLowerLimit / 3.6
@@ -1006,8 +992,6 @@ def current_lane_selector(lane_list, pose_data):
                 temp_id = temp_right_id
             except:
                 break
-
-    # rospy.loginfo(cur_lane_info.after_length)
 
     return cur_lane_info, available_lanes
 
@@ -1090,8 +1074,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                 # 找车前最近的在车道上的动态障碍物的速度
                 if temp_obstacle.cur_lane_id == lane_index:
                     if temp_obstacle.s_record[-1] > vehicle_s and temp_obstacle.s_record[-1] < moving_object_s:
+                        print(temp_obstacle.s_record)
                         moving_object_s = temp_obstacle.s_record[-1]
-                        # print(temp_obstacle.s_velocity)
+                        print("s_velocity %s"%list(temp_obstacle.s_velocity))
                         temp_efficiency = temp_obstacle.s_velocity[-1]
                         moving_object_type = temp_obstacle.type
 
@@ -2324,7 +2309,8 @@ class CreepForOpportunity(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario='merge')
 
-            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge', available_lanes, target_lane_id, next_lane_id)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
+                                                           available_lanes, target_lane_id, next_lane_id)
             is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
 
             if is_ready == True:
