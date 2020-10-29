@@ -2457,9 +2457,12 @@ class DriveAlongLane(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
-
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                                   desired_length)
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id,
+                                               available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
@@ -2591,8 +2594,13 @@ class DriveAndStopInFront(smach.State):
             rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
             rospy.loginfo("desired length %f" % desired_length)
 
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id,
+                                               available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
+
             if math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2)) < 1.5:
                 return 'finished'
 
@@ -2659,8 +2667,12 @@ class ExecutePark(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id,
+                                               available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
 
             if planning_feedback == PARKING_DONE:
                 return 'succeeded'
@@ -2783,8 +2795,12 @@ class ExitParkingSlot(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                           desired_length)
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id,
+                                               available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
 
             if planning_feedback == EXIT_PARKING_DONE:
                 return 'back_to_lane'
