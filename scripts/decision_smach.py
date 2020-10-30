@@ -1728,8 +1728,9 @@ def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_
     decision_msg_pub.publish(message)
 
 
-def re_global_planning_caller(blocked_id_list):
+def re_global_planning_caller(blocked_id_list = []):
     try:
+        rospy.loginfo("re-global planning because of lane %s blocked." % list(blocked_id_list))
         map_provider_respond = re_global_planning(blocked_id_list)
         if map_provider_respond.received == 1:
             return
@@ -1739,6 +1740,8 @@ def re_global_planning_caller(blocked_id_list):
 
 def mission_finished_caller():
     try:
+        global mission_ahead
+        rospy.loginfo("mission index %d completed." % mission_ahead.missionIndex)
         mission_planning_respond = current_mission_finished(mission_ahead.missionIndex)
         if mission_planning_respond.received == 1:
             mission_ahead = None
@@ -1825,6 +1828,42 @@ class Startup(smach.State):
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
             rospy.loginfo('current lane priority %d' % current_lane_info.cur_priority)
+
+            if current_lane_info.cur_lane_id != -1:
+                history_lanes_recorder(current_lane_info.cur_lane_id)
+
+            rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
+            # 执行到当前mission的最后一段
+            if current_lane_info.cur_lane_id != -1:
+                if history_lane_ids[-1] in mission_ahead.missionLaneIds:
+                    if mission_ahead.missionType == 'park':
+                        if mission_ahead.missionThingId in parking_area_list.keys():
+                            sum_angle = 0
+                            target_parking_area = parking_area_list[mission_ahead.missionThingId]
+                            for i in range(len(target_parking_area)):
+                                vehicle_to_point1 = np.array([target_parking_area[i].x - user_data.pose_data.mapX,
+                                                              target_parking_area[i].y - user_data.pose_data.mapY])
+                                vehicle_to_point2 = np.array([target_parking_area[i + 1].x - user_data.pose_data.mapX,
+                                                              target_parking_area[i + 1].y - user_data.pose_data.mapY])
+                                length1 = np.linalg.norm(vehicle_to_point1)
+                                length2 = np.linalg.norm(vehicle_to_point2)
+                                cos_value = np.dot(vehicle_to_point1, vehicle_to_point2) / (length1 * length2)
+                                if cos_value > 1:
+                                    cos_value = 1
+                                if cos_value < -1:
+                                    cos_value = -1
+                                sum_angle += math.acos(cos_value)
+                            if abs(sum_angle - 2 * math.pi) < EPS:
+                                return 'park'
+                        # 目标是固定的车位
+                        if mission_ahead.missionThingId in parking_slots_list.keys():
+                            print("99999999999999999999999999999999999")
+                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId]
+                            for i in range(len(temp_parking_slot)):
+                                if math.sqrt(math.pow(user_data.pose_data.mapX - temp_parking_slot[i].x, 2) + math.pow(
+                                        user_data.pose_data.mapY - temp_parking_slot[i].y, 2)) < 30:
+                                    return 'park'
+
             # target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, scenario, cur_lane_info, available_lanes)
             if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
                 # 的找不到当前车道或者当前车道优先级小，进入merge
@@ -1877,7 +1916,7 @@ class InLaneDriving(smach.State):
 
             rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
             # 执行到当前mission的最后一段
-            if history_lane_ids != []:
+            if current_lane_info.cur_lane_id != -1:
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
                     if mission_ahead.missionType == 'park':
                         if mission_ahead.missionThingId in parking_area_list.keys():
@@ -2269,7 +2308,7 @@ class CreepForOpportunity(smach.State):
     """
 
     def __init__(self):
-        smach.State.__init__(self, outcomes=['ready', 'back_to_normal'],
+        smach.State.__init__(self, outcomes=['ready', 'back_to_normal', 'no_mission'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2301,6 +2340,12 @@ class CreepForOpportunity(smach.State):
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            if target_lane_id == -1:
+                # merge 都找不到目标车道，则重新全局规划
+                re_global_planning_caller()
+                return 'no_mission'
+
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
                                                                        target_lane_id, user_data.pose_data, merge_decelerate=1)
@@ -2369,6 +2414,10 @@ class ExecuteMerge(smach.State):
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            if target_lane_id == -1:
+                return 'break'
+
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
                                                                        target_lane_id, user_data.pose_data,
@@ -3087,7 +3136,7 @@ def main():
                 smach.StateMachine.add('INTERSECTION', sm_scenario_intersection,
                                        transitions={'succeeded': 'LANE_FOLLOW'})
 
-                sm_scenario_merge = smach.StateMachine(outcomes=['succeeded'],
+                sm_scenario_merge = smach.StateMachine(outcomes=['succeeded', 'restart'],
                                                        input_keys=['lane_list', 'obstacles_list',
                                                                    'signs_data', 'lights_list', 'pose_data', 'parking_slots_list'],
                                                        output_keys=['lane_list',
@@ -3097,11 +3146,13 @@ def main():
                 with sm_scenario_merge:
                     smach.StateMachine.add('CREEP_FOR_OPPORTUNITY', CreepForOpportunity(),
                                            transitions={'ready': 'EXECUTE_MERGE',
-                                                        'back_to_normal': 'succeeded'})
+                                                        'back_to_normal': 'succeeded',
+                                                        'no_mission': 'restart'})
                     smach.StateMachine.add('EXECUTE_MERGE', ExecuteMerge(),
                                            transitions={'back_to_normal': 'succeeded',
                                                         'break': 'CREEP_FOR_OPPORTUNITY'})
-                smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW'})
+                smach.StateMachine.add('MERGE_AND_ACROSS', sm_scenario_merge, transitions={'succeeded': 'LANE_FOLLOW',
+                                                                                           'restart': 'STARTUP'})
 
                 sm_scenario_park = smach.StateMachine(outcomes=['mission_continue'],
                                                       input_keys=['lane_list', 'obstacles_list',
