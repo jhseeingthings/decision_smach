@@ -1813,7 +1813,7 @@ class StartupCheck(smach.State):
 
 class Startup(smach.State):
     def __init__(self):
-        smach.State.__init__(self, outcomes=['in_lane_driving', 'merge_and_across'],
+        smach.State.__init__(self, outcomes=['in_lane_driving', 'merge_and_across', 'park'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -3048,7 +3048,7 @@ def main():
                                                  )
 
             with sm_con_scenario:
-                sm_scenario_startup = smach.StateMachine(outcomes=['in_lane_driving', 'merge_and_across'],
+                sm_scenario_startup = smach.StateMachine(outcomes=['in_lane_driving', 'merge_and_across', 'park'],
                                                          input_keys=['lane_list',
                                                                      'obstacles_list', 'signs_data', 'lights_list',
                                                                      'pose_data', 'parking_slots_list'],
@@ -3060,9 +3060,11 @@ def main():
                     smach.StateMachine.add('STARTUP_CHECK', StartupCheck(), transitions={'ready': 'EXECUTE_STARTUP'})
                     smach.StateMachine.add('EXECUTE_STARTUP', Startup(),
                                            transitions={'in_lane_driving': 'in_lane_driving',
-                                                        'merge_and_across': 'merge_and_across'})
+                                                        'merge_and_across': 'merge_and_across',
+                                                        'park': 'park'})
                 smach.StateMachine.add('STARTUP', sm_scenario_startup, transitions={'in_lane_driving': 'LANE_FOLLOW',
-                                                                                    'merge_and_across': 'MERGE_AND_ACROSS'})
+                                                                                    'merge_and_across': 'MERGE_AND_ACROSS',
+                                                                                    'park': 'PARK'})
 
                 sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across', 'finished'],
                                                              input_keys=['lane_list',
