@@ -2763,11 +2763,13 @@ class AwaitMission(smach.State):
     def execute(self, user_data):
 
         mission_finished_caller()
+        output_filler(scenario=0)
         rospy.sleep(10)
         while not rospy.is_shutdown():
             rospy.loginfo("currently in AwaitMission")
             if mission_ahead == None:
                 output_filler(scenario=0)
+                rospy.sleep(DECISION_PERIOD)
                 continue
             else:
                 return 'continue'
