@@ -1533,12 +1533,12 @@ def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_la
         speed_upper_limit = min(speed_upper_limit, (lane_list[current_lane_info.cur_lane_id].speedUpperLimit / 3.6))
         speed_lower_limit = max(speed_lower_limit, (lane_list[current_lane_info.cur_lane_id].speedLowerLimit / 3.6))
         if available_lanes[current_lane_info.cur_lane_id].front_drivable_length < pose_data.mVf ** 2 / (2 * COMFORT_DEC):
-            speed_upper_limit = min(speed_lower_limit, 1.5)
+            speed_upper_limit = min(speed_upper_limit, 1.5)
     if target_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[target_lane_id].speedUpperLimit / 3.6))
         speed_lower_limit = max(speed_lower_limit, (lane_list[target_lane_id].speedLowerLimit / 3.6))
         if available_lanes[target_lane_id].front_drivable_length < pose_data.mVf ** 2 / (2 * COMFORT_DEC):
-            speed_upper_limit = min(speed_lower_limit, 1.5)
+            speed_upper_limit = min(speed_upper_limit, 1.5)
     if merge_decelerate != -1:
         speed_upper_limit = min(SPEED_UPPER_LIMIT_MERGE, merge_decelerate / 5 * speed_upper_limit)
         # 分5个减速等级
