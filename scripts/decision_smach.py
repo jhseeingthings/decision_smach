@@ -891,14 +891,18 @@ def current_lane_selector(lane_list, pose_data):
         available_lanes[lane_index] = temp_drivable_lane
 
     # choose current lane id and index
-    # DIR_THRESHOLD = 120.0 / 180.0 * 3.14159265
+    DIR_THRESHOLD = 90.0 / 180.0 * 3.14159265
     OFFSET_THRESHOLD = 1.0
     min_offset = 2.0
     cur_lane_index = -1
     cur_lane_id = -1
     count = 0
-    priority_index_set = []
-    priority_id_set = []
+
+    priority_id_index_set = []
+
+    # print(offset)
+    # print(dir_diff)
+    # print(id_list)
 
     # 选择当前车道(找全局规划)
     # 先找距离处于较小范围内，优先级较高的第一条车道
@@ -907,38 +911,49 @@ def current_lane_selector(lane_list, pose_data):
         abs_offset = abs(offset[i])
         # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
         if abs_offset < OFFSET_THRESHOLD \
-                and lane_list[id_list[i]].priority == 2:
+                and lane_list[id_list[i]].priority == 2 \
+                and after_length[i] > EPS:
+
+            # print("1111111111111111111111111111111")
             count += 1
-            priority_index_set.append(i)
-            priority_id_set.append(id_list[i])
+            priority_id_index_set.append([id_list[i], i])
+
     if count == 0:
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
             # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
             if abs_offset < OFFSET_THRESHOLD \
-                    and lane_list[id_list[i]].priority == 1:
+                    and lane_list[id_list[i]].priority == 1 \
+                    and after_length[i] > EPS:
+                # print("2222222222222222222222222222222")
                 count += 1
-                priority_index_set.append(i)
-                priority_id_set.append(id_list[i])
+                priority_id_index_set.append([id_list[i], i])
+
     if count == 0:
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
             #
             if abs_offset < min_offset:
+                # print("333333333333333333333333333333")
                 count = 1
                 min_offset = abs_offset
-                priority_index_set.append(i) # 只有一条
-                priority_id_set.append(id_list[i])
+                priority_id_index_set.append([id_list[i], i])
+
 
     if count != 0:
-        min_id = 10000
-        min_id_index = -1
+        # min_id = 10000
+        # min_id_index = -1
+        priority_id_index_set.sort()
         for i in range(count):
-            if priority_id_set[i] < min_id:
-                min_id = priority_id_set[i]
-                min_id_index = priority_index_set[i]
-        cur_lane_id = min_id
-        cur_lane_index = min_id_index
+            if abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
+                # print("44444444444444444444444444 %d" % priority_id_index_set[i][0])
+                cur_lane_id = priority_id_index_set[i][0]
+                cur_lane_index = priority_id_index_set[i][1]
+
+    if cur_lane_id == -1:
+        cur_lane_id = priority_id_index_set[0][0]
+        cur_lane_index = priority_id_index_set[0][1]
+
 
     cur_lane_info = CurrentLaneInfo()
     if cur_lane_id != -1:
