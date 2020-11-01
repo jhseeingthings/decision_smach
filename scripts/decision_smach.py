@@ -900,10 +900,6 @@ def current_lane_selector(lane_list, pose_data):
 
     priority_id_index_set = []
 
-    # print(offset)
-    # print(dir_diff)
-    # print(id_list)
-
     # 选择当前车道(找全局规划)
     # 先找距离处于较小范围内，优先级较高的第一条车道
     # 如果找不到，找距离最小的一条车道
@@ -913,8 +909,6 @@ def current_lane_selector(lane_list, pose_data):
         if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
                 and after_length[i] > EPS:
-
-            # print("1111111111111111111111111111111")
             count += 1
             priority_id_index_set.append([id_list[i], i])
 
@@ -925,20 +919,21 @@ def current_lane_selector(lane_list, pose_data):
             if abs_offset < OFFSET_THRESHOLD \
                     and lane_list[id_list[i]].priority == 1 \
                     and after_length[i] > EPS:
-                # print("2222222222222222222222222222222")
                 count += 1
                 priority_id_index_set.append([id_list[i], i])
 
     if count == 0:
+        min_offset_id = -1
+        min_offset_index = -1
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
-            #
             if abs_offset < min_offset:
-                # print("333333333333333333333333333333")
                 count = 1
                 min_offset = abs_offset
-                priority_id_index_set.append([id_list[i], i])
-
+                min_offset_id = id_list[i]
+                min_offset_index = i
+        if min_offset_id != -1:
+            priority_id_index_set.append([min_offset_id, min_offset_index])
 
     if count != 0:
         # min_id = 10000
@@ -946,13 +941,12 @@ def current_lane_selector(lane_list, pose_data):
         priority_id_index_set.sort()
         for i in range(count):
             if abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
-                # print("44444444444444444444444444 %d" % priority_id_index_set[i][0])
                 cur_lane_id = priority_id_index_set[i][0]
                 cur_lane_index = priority_id_index_set[i][1]
 
-    if cur_lane_id == -1:
-        cur_lane_id = priority_id_index_set[0][0]
-        cur_lane_index = priority_id_index_set[0][1]
+        if cur_lane_id == -1:
+            cur_lane_id = priority_id_index_set[0][0]
+            cur_lane_index = priority_id_index_set[0][1]
 
 
     cur_lane_info = CurrentLaneInfo()
@@ -1933,6 +1927,8 @@ class InLaneDriving(smach.State):
             # 执行到当前mission的最后一段
             if current_lane_info.cur_lane_id != -1:
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
+                    if mission_ahead.missionType == 'road':
+                        pass
                     if mission_ahead.missionType == 'park':
                         if mission_ahead.missionThingId in parking_area_list.keys():
                             sum_angle = 0
