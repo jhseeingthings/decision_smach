@@ -422,9 +422,15 @@ class DecisionObstacle:
         if lane_found_flag:
             self.lane_lateral_diff = []
             self.dir_diff = []
-            self.history_lane_ids = []
+            if self.history_lane_ids == []:
+                self.history_lane_ids.append(self.cur_lane_id)
+            else:
+                if self.history_lane_ids[-1] != self.cur_lane_id:
+                    self.history_lane_ids.append(self.cur_lane_id)
+
             self.s_velocity = []
             self.l_velocity = []
+            self.s_record = []
             cur_lane = lane_list[self.cur_lane_id]
             points_x, points_y = [], []
             for j in cur_lane.points:
@@ -438,11 +444,9 @@ class DecisionObstacle:
                 self.lane_lateral_diff.append(result[3])
                 self.dir_diff.append(result[4])
                 self.s_record.append(result[5])
-                self.history_lane_ids.append(self.cur_lane_id)
-
                 self.s_velocity.append(math.cos(result[4]) * self.history_velocity[i])
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
-            # print(self.id, self.s_velocity)
+            print(self.id, self.history_lane_ids[-1], self.s_velocity[-1], self.s_record[-1])
         else:
             pass
 
