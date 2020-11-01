@@ -1832,7 +1832,7 @@ class Startup(smach.State):
     def execute(self, user_data):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in Startup")
-            output_filler(scenario=0)
+            output_filler(scenario=NONE)
             user_data_updater(user_data)
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo('current lane id %d' % current_lane_info.cur_lane_id)
@@ -1928,7 +1928,9 @@ class InLaneDriving(smach.State):
             if current_lane_info.cur_lane_id != -1:
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
                     if mission_ahead.missionType == 'road':
-                        pass
+                        mission_finished_caller()
+                        output_filler(scenario=NONE)
+                        return 'finished'
                     if mission_ahead.missionType == 'park':
                         if mission_ahead.missionThingId in parking_area_list.keys():
                             sum_angle = 0
@@ -1987,7 +1989,7 @@ class InLaneDriving(smach.State):
             obstacle_of_interest_selector(user_data.obstacles_list)
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
             if planning_feedback == RE_CHOOSE_PATH:
                 rospy.loginfo("No way to go!!!")
@@ -2061,7 +2063,7 @@ class LaneChangePreparing(smach.State):
             else:
                 reference_path = []
 
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2125,7 +2127,7 @@ class LaneChanging(smach.State):
             else:
                 reference_path = []
 
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2248,7 +2250,7 @@ class ApproachIntersection(smach.State):
                                            desired_length)
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2380,7 +2382,7 @@ class CreepForOpportunity(smach.State):
                                                desired_length)
             else:
                 reference_path = []
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2448,10 +2450,10 @@ class ExecuteMerge(smach.State):
                                                    desired_length)
                 else:
                     reference_path = []
-                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             else:
                 speed_upper_limit = 0
-                output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path=[])
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path=[])
                 return 'break'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2511,7 +2513,7 @@ class DriveAlongLane(smach.State):
                 reference_path = []
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(1, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
             if parking_slots_list != {}:
                 return 'enter_parking_zone'
@@ -2774,12 +2776,12 @@ class AwaitMission(smach.State):
     def execute(self, user_data):
 
         mission_finished_caller()
-        output_filler(scenario=0)
+        output_filler(scenario=NONE)
         rospy.sleep(10)
         while not rospy.is_shutdown():
             rospy.loginfo("currently in AwaitMission")
             if mission_ahead == None:
-                output_filler(scenario=0)
+                output_filler(scenario=NONE)
                 rospy.sleep(DECISION_PERIOD)
                 continue
             else:
