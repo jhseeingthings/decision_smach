@@ -442,7 +442,7 @@ class DecisionObstacle:
 
                 self.s_velocity.append(math.cos(result[4]) * self.history_velocity[i])
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
-            print(self.id, self.s_velocity)
+            # print(self.id, self.s_velocity)
         else:
             pass
 
