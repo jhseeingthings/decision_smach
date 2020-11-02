@@ -65,7 +65,7 @@ EXIT_PARKING_DONE = 4
 
 # 大决策：当前自车的行为
 # possible values
-NONE = 0
+# NONE = 0
 REF_PATH_FOLLOW = 1
 EMERGENCY_BRAKE = 2
 PARK = 3
@@ -79,7 +79,7 @@ DYNAMIC = 1
 
 # 小决策
 # The reaction towards the obstacle
-NONE = 0
+# NONE = 0
 OVERTAKE = 1
 GIVE_WAY = 2
 AVOID_COLLISION = 3
@@ -296,7 +296,6 @@ class DecisionObstacle:
             self.is_moving = 1
         else:
             self.is_moving = 0
-
 
         # record history trajectory for regular obstacles.
         if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
@@ -749,7 +748,7 @@ def things_callback(things_msg):
     global parking_slots_list, parking_area_list
     things_data = things_msg
     parking_slots_list = {}
-    # type: parkingArea, parkingSlot
+    # type is parkingArea or parkingSlot
     for k in things_data.things:
         if k.type == "parkingSlot":
             parking_slots_list[k.id] = k.points
@@ -1086,10 +1085,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
             else:
                 # 找车前最近的在车道上的动态障碍物的速度
                 if temp_obstacle.cur_lane_id == lane_index:
-                    if temp_obstacle.s_record[-1] > vehicle_s and temp_obstacle.s_record[-1] < moving_object_s:
-                        print(temp_obstacle.s_record)
+                    if vehicle_s < temp_obstacle.s_record[-1] < moving_object_s:
                         moving_object_s = temp_obstacle.s_record[-1]
-                        print("s_velocity %s"%list(temp_obstacle.s_velocity))
                         temp_efficiency = temp_obstacle.s_velocity[-1]
                         moving_object_type = temp_obstacle.type
 
@@ -1158,10 +1155,15 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
     # 当前处于正常行驶状态，为了提升行驶效率，而选择目标车道
     elif scenario == "lane_follow":
         selectable_lanes = [cur_lane_info.cur_lane_id, cur_lane_info.left_lane_id, cur_lane_info.right_lane_id]
+        if cur_lane_info.left_lane_id not in available_lanes.keys():
+            selectable_lanes[1] = 0
+        if cur_lane_info.right_lane_id not in available_lanes.keys():
+            selectable_lanes[2] = 0
         lane_reward = []
         lane_priority = []
         can_change_constraint = [1, cur_lane_info.can_change_left, cur_lane_info.can_change_right]
 
+        rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
         # rospy.loginfo(cur_lane_info.left_priority)
         # rospy.loginfo(cur_lane_info.right_priority)
         # rospy.loginfo(cur_lane_info.left_lane_id)
