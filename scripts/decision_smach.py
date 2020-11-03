@@ -1253,13 +1253,15 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         rospy.loginfo("lane_drivable_length %s" % list(lane_drivable_length))
         rospy.loginfo("lane_drivable_length_ratio %s" % list(lane_drivable_length_ratio))
 
+        rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
+
         # 先判断是否需要强制性变道到优先级高的车道
         if cur_lane_info.dist_to_next_road < 100:
             # 条件有待确定
-            rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
             if lane_priority[0] == 2:
                 if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
-                        lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                        lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+                        available_lanes[selectable_lanes[0]].closest_moving_object_distance > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
                     target_lane_id = cur_lane_info.cur_lane_id
                 else:
                     if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
@@ -1285,7 +1287,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         # 先判断当前车道的行驶效率
         else:
             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
-                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+                    available_lanes[selectable_lanes[0]].closest_moving_object_distance > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
                 # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
                 target_lane_id = cur_lane_info.cur_lane_id
             else:
@@ -1560,7 +1563,7 @@ def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_
     if target_lane_id != -1:
         closest_moving_object_id = available_lanes[target_lane_id].closest_moving_object_id
         if closest_moving_object_id > 0:
-            print("give way to obstacle id %d" % closest_moving_object_id)
+            rospy.loginfo("give way to obstacle id %d" % closest_moving_object_id)
             obstacles_list[closest_moving_object_id].sub_decision = GIVE_WAY
             obstacles_list[closest_moving_object_id].safe_distance = MIN_GAP_DISTANCE
 
