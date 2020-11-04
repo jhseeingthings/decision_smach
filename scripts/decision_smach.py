@@ -302,7 +302,7 @@ class DecisionObstacle:
             self.is_moving = False
 
         # record history trajectory for regular obstacles.
-        if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
+        if self.type == 'VEHICLE' or self.type == 'PEDESTRAIN' or self.type == 'BICYCLE':
             self.detected_time.append(obstacle_msg.detectedTime)
             # calculate center point
             center_point_x = np.mean([point_i.x for point_i in obstacle_msg.points])
@@ -354,6 +354,7 @@ class DecisionObstacle:
         # rospy.loginfo("start processing obstacle %d" % self.id)
         # project the obstacle to the lanes, and select current lane.
         if lane_list != None and self.is_moving:
+            # print(self.id, self.type, self.history_center_points)
             self.obstacle_projection(lane_list)
 
     # project the obstacle to the lanes, and select current lane.
