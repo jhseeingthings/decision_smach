@@ -37,12 +37,11 @@ from local_messages.msg import Sign
 from local_messages.msg import Things
 from local_messages.msg import Thing
 from local_messages.msg import ControlFeedback
-from map_provider.msg import Missions
+from local_messages.msg import Missions
 
-
-from em_planner.srv import PlanningFeedback, PlanningFeedbackRequest, PlanningFeedbackResponse
-from map_provider.srv import ReGlobalPlanning, ReGlobalPlanningRequest, ReGlobalPlanningResponse
-from map_provider.srv import CurrentMissionFinished, CurrentMissionFinishedRequest, CurrentMissionFinishedResponse
+from local_messages.srv import PlanningFeedback, PlanningFeedbackRequest, PlanningFeedbackResponse
+from local_messages.srv import ReGlobalPlanning, ReGlobalPlanningRequest, ReGlobalPlanningResponse
+from local_messages.srv import CurrentMissionFinished, CurrentMissionFinishedRequest, CurrentMissionFinishedResponse
 
 # import all the msg and srv files
 
@@ -738,7 +737,7 @@ def signs_callback(signs_msg):
 
 
 def obstacles_callback(obstacles_msg):
-    rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
+    # rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
     global obstacle_updated_flag
     if obstacle_updated_flag:
         obstacle_updated_flag = 0
@@ -763,7 +762,7 @@ def obstacles_callback(obstacles_msg):
                 del obstacles_list[k]
 
         obstacle_updated_flag = 1
-    rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
+    # rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
     # rospy.loginfo('obstacles_data_updated')
 
 
@@ -1508,45 +1507,52 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lanes_of_i
                                      pose_data.mapX, pose_data.mapY)
     vehicle_s = vehicle_result[5]
 
-    target_lane_obstacles_id = []
-    target_lane_obstacles_s = []
+    # target_lane_obstacles_id = []
+    # target_lane_obstacles_s = []
+    target_lane_obstacles_s_id = []
     for obstacle_index in obstacles_list.keys():
         obstacle_info = obstacles_list[obstacle_index]
         if obstacle_info.cur_lane_id == target_lane_id:
-            target_lane_obstacles_id.append(obstacle_index)
-            target_lane_obstacles_s.append(obstacle_info.s_record[-1])
+            # target_lane_obstacles_id.append(obstacle_index)
+            # target_lane_obstacles_s.append(obstacle_info.s_record[-1])
+            target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
 
-    # insert sort
-    count = len(target_lane_obstacles_id)
-    for i in range(1, count):
-        key = target_lane_obstacles_s[i]
-        id = target_lane_obstacles_id[i]
-        j = i - 1
-        while (j >= 0):
-            if target_lane_obstacles_s[j] > key:
-                target_lane_obstacles_s[j + 1] = target_lane_obstacles_s[j]
-                target_lane_obstacles_s[j] = key
-                target_lane_obstacles_id[j + 1] = target_lane_obstacles_id[j]
-                target_lane_obstacles_id[j] = id
-            j -= 1
+    target_lane_obstacles_s_id.sort()
+    # # insert sort
+    # count = len(target_lane_obstacles_id)
+    # for i in range(1, count):
+    #     key = target_lane_obstacles_s[i]
+    #     id = target_lane_obstacles_id[i]
+    #     j = i - 1
+    #     while (j >= 0):
+    #         if target_lane_obstacles_s[j] > key:
+    #             target_lane_obstacles_s[j + 1] = target_lane_obstacles_s[j]
+    #             target_lane_obstacles_s[j] = key
+    #             target_lane_obstacles_id[j + 1] = target_lane_obstacles_id[j]
+    #             target_lane_obstacles_id[j] = id
+    #         j -= 1
 
     target_slot = -1
-    for i in range(len(target_lane_obstacles_id) - 1, -1, -1):
+    # target_slot采用正常计数规则，
+    # 0表示在第一辆车之前插入，
+    # i表示在第i辆车与第i+1辆车之间插入index=[i-1,i]
+    # i+1表示在第i+1辆车之后插入
+    for i in range(len(target_lane_obstacles_s_id) - 1, -1, -1):
         # 1) the slot’s front - obstacle back - merge and rear - obstacle front - merge are feasible;
         # 2) the gap between obstacles is large enough for Boss plus proper spacing in front and rear;
         # 3) the front obstacle’s velocity is greater than or equal to the rear obstacle’s velocity, so the gap is not closing;
         # 4) the merge-between point will be reached before the checkpoint.
-        if target_lane_obstacles_s[i] > vehicle_s:
+        if target_lane_obstacles_s_id[i][0] > vehicle_s:
             continue
         else:
             # slot[i,i+1]
-            front_obstacle = obstacles_list[target_lane_obstacles_id[i + 1]]
-            rear_obstacle = obstacles_list[target_lane_obstacles_id[i]]
-            if (1.2 * front_obstacle.s_velocity[-1] < rear_obstacle.s_velocity[-1]):
+            front_obstacle = obstacles_list[target_lane_obstacles_s_id[i + 1]]
+            rear_obstacle = obstacles_list[target_lane_obstacles_s_id[i]]
+            if 1.2 * front_obstacle.s_velocity[-1] < rear_obstacle.s_velocity[-1]:
                 continue
             elif front_obstacle.s_record[-1] - rear_obstacle.s_record[-1] > 2 * (
                     desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH):
-                target_slot = i
+                target_slot = i + 1
                 break
 
     if target_slot != -1:
