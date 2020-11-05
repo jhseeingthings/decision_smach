@@ -124,9 +124,17 @@ target_parking_slot = []
 target_parking_slot_center = []
 parking_lane_id = 0
 
-ready_to_go = 0
+# ready_to_go = 0
 
 history_lane_ids = []
+
+# stop line type from map
+NO_STOP = 0 # default value
+SLOW_GIVE_WAY = 1
+STOP_GIVE_WAY = 2
+OBSERVE_TRAFFIC_LIGHT = 3
+LANE_END = 4
+DESTINATION = 5
 
 
 class Pose:
@@ -244,7 +252,7 @@ class DecisionObstacle:
 
         """
         # The type of the obstacle.
-        # The value could be VEHICLE,  BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
+        # The value could be VEHICLE, BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
         string type
         
         # The size of the obstacle.
@@ -342,7 +350,7 @@ class DecisionObstacle:
             self.history_velocity.clear()
             self.history_velocity_vec.clear()
             self.history_heading.clear()
-            self.detected_time.append(obstacle_msg.detectedTime)
+            # self.detected_time.append(obstacle_msg.detectedTime)
 
         if len(self.detected_time) > 5:
             self.detected_time = self.detected_time[-5:]
@@ -995,16 +1003,18 @@ def current_lane_selector(lane_list, pose_data):
         cur_lane_info.before_length = before_length[cur_lane_index]
         cur_lane_info.after_length = after_length[cur_lane_index]
 
+        cur_lane_info.next_stop_type = lane_list[cur_lane_id].stopType
         if lane_list[cur_lane_id].stopType != 0:
             stop_line_x = lane_list[cur_lane_id].nextStop.x
             stop_line_y = lane_list[cur_lane_id].nextStop.y
             cur_lane_info.dist_to_next_stop = math.sqrt(
                 math.pow(stop_line_x - pose_data.mapX, 2) + pow(stop_line_y - pose_data.mapY, 2))
-            cur_lane_info.next_stop_type = lane_list[cur_lane_id].stopType
 
         cur_lane_info.dist_to_next_road = after_length[cur_lane_index]
-
         cur_lane_info.cur_turn_type = lane_list[cur_lane_id].turn
+
+        # print(cur_lane_info.next_stop_type, cur_lane_info.dist_to_next_stop, cur_lane_info.dist_to_next_road, cur_lane_info.cur_turn_type)
+
         cur_lane_info.can_change_left = lane_list[cur_lane_id].canChangeLeft
         cur_lane_info.can_change_right = lane_list[cur_lane_id].canChangeRight
         cur_lane_info.speed_lower_limit = lane_list[cur_lane_id].speedLowerLimit / 3.6
@@ -1427,7 +1437,7 @@ def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, 
                     lane_of_interest.start_s = lane_of_interest.end_s - longitudinal_distance
                 lanes_of_interest[index] = lane_of_interest
                 interest_lanes_found = 1
-        if interest_lanes_found == 0:
+        if interest_lanes_found == 0 and next_lane_id != -1:
             # 考虑下一个连接点是否有汇入情况
             if len(lane_list[next_lane_id].leadToIds) > 0:
                 lead_to_id = lane_list[next_lane_id].leadToIds[0]
@@ -1482,7 +1492,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
 
         if min_time < action_time:
             is_ready = False
-    return is_ready, obstacles_list
+    return is_ready
 
 
 def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list):
@@ -1775,13 +1785,14 @@ def desired_safety_distance(velocity):
     return max(1, velocity * 3.6 / 10) * MIN_GAP_DISTANCE
 
 
-def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[]):
+def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[], light_detection_switch = 0):
     message = Decision()
     message.scenario = int(scenario)
     message.speedUpperLimit = speed_upper_limit
     message.speedLowerLimit = speed_lower_limit
     message.refPath = reference_path
     message.selectedParkingLot = selected_parking_lot
+    message.lightDetectionSwitch = light_detection_switch
     filtered_obstacles_list = []
     for obstacle_id, obstacle in filtered_obstacles.items():
         filtered_obstacle = FilteredObstacle()
@@ -1861,6 +1872,7 @@ class StartupCheck(smach.State):
 
     def execute(self, user_data):
         # clear the global variables
+        global parking_lane_id, target_parking_slot, target_parking_slot_center
         parking_lane_id = 0
         target_parking_slot = []
         target_parking_slot_center = []
@@ -1993,7 +2005,7 @@ class InLaneDriving(smach.State):
                 # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
 
-            if current_lane_info.dist_to_next_road < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
+            if current_lane_info.next_stop_type != NO_STOP and current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
                 return 'intersection'
 
             rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
@@ -2159,7 +2171,6 @@ class LaneChanging(smach.State):
     """
 
     """
-
     def __init__(self):
         smach.State.__init__(self, outcomes=['lane_change_completed', 'lane_change_cancelled'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2354,8 +2365,10 @@ class ApproachIntersection(smach.State):
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
                           reference_path)
 
-            if current_lane_info.dist_to_next_road < 10:
+            if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT:
                 return 'with_lights'
+            if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
+                return 'without_lights'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2402,19 +2415,31 @@ class CreepToIntersectionWithLights(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            # 避免找到身后的目标路径
-            if desired_length > 0:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection', available_lanes, target_lane_id, next_lane_id)
+
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+
+            if is_ready:
+                # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
+
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
+
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path, light_detection_switch = 1)
             else:
-                reference_path = []
+                speed_upper_limit = 0
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
-                                          target_lane_id)
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
 
-            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
-                          reference_path)
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path=[], light_detection_switch = 1)
 
             if current_lane_info.cur_turn_type:
                 return 'enter'
@@ -2449,6 +2474,9 @@ class CreepToIntersectionWithoutLights(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
 
+            if current_lane_info.cur_turn_type:
+                return 'enter'
+
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'intersection',
@@ -2464,22 +2492,33 @@ class CreepToIntersectionWithoutLights(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            # 避免找到身后的目标路径
-            if desired_length > 0:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection',
+                                                           available_lanes, target_lane_id, next_lane_id)
+
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+
+            if is_ready:
+                # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
+
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
+
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path)
             else:
-                reference_path = []
+                speed_upper_limit = 0
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
-                                          target_lane_id)
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
 
-            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
-                          reference_path)
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path=[])
 
-            if current_lane_info.cur_turn_type:
-                return 'enter'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2511,6 +2550,9 @@ class EnterIntersection(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
 
+            if not current_lane_info.cur_turn_type:
+                return 'pass'
+
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'intersection',
@@ -2526,22 +2568,33 @@ class EnterIntersection(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            # 避免找到身后的目标路径
-            if desired_length > 0:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                               desired_length)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection',
+                                                           available_lanes, target_lane_id, next_lane_id)
+
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+
+            if is_ready:
+                # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
+
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
+
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path)
             else:
-                reference_path = []
+                speed_upper_limit = 0
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
-                                          target_lane_id)
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
 
-            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
-                          reference_path)
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path=[])
 
-            if not current_lane_info.cur_turn_type:
-                return 'pass'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2619,9 +2672,9 @@ class CreepForOpportunity(smach.State):
 
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                            available_lanes, target_lane_id, next_lane_id)
-            is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
 
-            if is_ready == True:
+            if is_ready:
                 return 'ready'
             else:
                 speed_upper_limit = 0
@@ -2695,8 +2748,8 @@ class ExecuteMerge(smach.State):
 
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                            available_lanes, target_lane_id, next_lane_id)
-            is_ready, obstacles_list = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
-            if is_ready == True:
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+            if is_ready:
                 # 避免找到身后的目标路径
                 if desired_length > 0:
                     reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
