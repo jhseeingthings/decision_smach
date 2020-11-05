@@ -2005,7 +2005,7 @@ class InLaneDriving(smach.State):
                 # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
 
-            if current_lane_info.next_stop_type != NO_STOP and current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
+            if current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT and current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
                 return 'intersection'
 
             rospy.loginfo("mission on lane %s " % list(mission_ahead.missionLaneIds))
@@ -2367,8 +2367,8 @@ class ApproachIntersection(smach.State):
 
             if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT:
                 return 'with_lights'
-            if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
-                return 'without_lights'
+            # if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
+            #     return 'without_lights'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2399,6 +2399,9 @@ class CreepToIntersectionWithLights(smach.State):
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
+
+            if current_lane_info.cur_turn_type:
+                return 'enter'
 
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
@@ -2441,8 +2444,7 @@ class CreepToIntersectionWithLights(smach.State):
                 output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
                               reference_path=[], light_detection_switch = 1)
 
-            if current_lane_info.cur_turn_type:
-                return 'enter'
+
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
