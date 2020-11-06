@@ -47,7 +47,7 @@ from local_messages.srv import CurrentMissionFinished, CurrentMissionFinishedReq
 
 # velocity defined by m/s
 
-EPS = 0.0001
+EPS = 0.001
 
 MIN_TURNING_RADIUS = 4.5
 VEHICLE_WIDTH = 1.86
@@ -104,7 +104,7 @@ TIME_SPACE = 1
 # is defined as the minimum required temporal spacing between vehicles, where 1 s approximates a vehicle length per 10 mph.
 
 MIN_GAP_DISTANCE = 5  # One car length
-MIN_SAFE_DISTANCE = 0.5
+MIN_SAFE_DISTANCE = 0.2
 
 mission_ahead = None
 global_pose_data = None
@@ -1112,10 +1112,12 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                             rear_drivable_s = longitudinal_max
 
                 if lane_index == cur_lane_info.cur_lane_id:
+                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
                     if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
-                        if not (lateral_max < left_margin - VEHICLE_WIDTH or lateral_min > left_margin):
+                        if not (lateral_max < (-1 / 2 * temp_lane.width - VEHICLE_WIDTH) or lateral_min > -1 / 2 * temp_lane.width):
                             temp_can_change_left = 0
-                        if not (lateral_max < right_margin or lateral_min > right_margin + VEHICLE_WIDTH):
+                        if not (lateral_max < 1 / 2 * temp_lane.width or lateral_min > (1 / 2 * temp_lane.width + VEHICLE_WIDTH)):
+                            print(obstacle_index)
                             temp_can_change_right = 0
             else:
                 # 找车前最近的在车道上的动态障碍物的速度
@@ -1224,7 +1226,26 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         elif right_found_2:
             right_priority = 2
 
-        lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
+        temp_priority_list = []
+        # 与剩余路径长短成反比的优先级系数
+        if cur_lane_info.dist_to_next_road <= 100:
+            lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
+        else:
+            if cur_lane_info.cur_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(cur_lane_info.cur_priority)
+            if left_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(left_priority)
+            if right_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(left_priority)
+            lane_priority += temp_priority_list
+
+
         lane_drivable_length = []
         lane_drivable_length_ratio = []
         lane_efficiency_ratio = []
@@ -1243,7 +1264,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                 lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
                 lane_drivable_length_ratio.append(free_space)
 
-                lane_reward.append((0.8 * efficiency + 0.2 * free_space) * lane_priority[i] * can_change_constraint[i])
+                lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
             else:
                 lane_reward.append(0)
                 lane_efficiency_ratio.append(0)
@@ -1262,7 +1283,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
 
         # 先判断是否需要强制性变道到优先级高的车道
-        if cur_lane_info.dist_to_next_road < 100:
+        if 20 < cur_lane_info.dist_to_next_road < 100:
             # 条件有待确定
             if lane_priority[0] == 2:
                 if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
@@ -1290,8 +1311,11 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         target_lane_id = cur_lane_info.right_lane_id
                 else:
                     target_lane_id = cur_lane_info.cur_lane_id
-        # 先判断当前车道的行驶效率
-        else:
+        elif cur_lane_info.dist_to_next_road <= 20:
+            target_lane_id = cur_lane_info.cur_lane_id
+
+        elif cur_lane_info.dist_to_next_road >= 100:
+            # 先判断当前车道的行驶效率
             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
                     lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
                     available_lanes[selectable_lanes[0]].closest_moving_object_distance > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
@@ -1316,8 +1340,9 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                     else:
                         target_lane_id = cur_lane_info.cur_lane_id
 
-    elif scenario == "intersection":
-        target_lane_id = cur_lane_info.cur_lane_id
+    # elif scenario == "intersection":
+    #     target_lane_id = cur_lane_info.cur_lane_id
+
     else:
         target_lane_id = cur_lane_info.cur_lane_id
 
@@ -2338,7 +2363,7 @@ class ApproachIntersection(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'intersection',
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
@@ -2405,7 +2430,7 @@ class CreepToIntersectionWithLights(smach.State):
 
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
-                                                                'intersection',
+                                                                'lane_follow',
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
@@ -2481,7 +2506,7 @@ class CreepToIntersectionWithoutLights(smach.State):
 
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
-                                                                'intersection',
+                                                                'lane_follow',
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
@@ -2557,7 +2582,7 @@ class EnterIntersection(smach.State):
 
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
-                                                                'intersection',
+                                                                'lane_follow',
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
