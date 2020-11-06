@@ -38,6 +38,7 @@ from local_messages.msg import Things
 from local_messages.msg import Thing
 from local_messages.msg import ControlFeedback
 from local_messages.msg import Missions
+from shapely.geometry import Point, Polygon
 
 from local_messages.srv import PlanningFeedback, PlanningFeedbackRequest, PlanningFeedbackResponse
 from local_messages.srv import ReGlobalPlanning, ReGlobalPlanningRequest, ReGlobalPlanningResponse
@@ -772,9 +773,13 @@ def things_callback(things_msg):
     things_data = things_msg
     parking_slots_list = {}
     # type is parkingArea or parkingSlot
-    for k in things_data.things:
-        if k.type == "parkingSlot":
+    for k in things_data.things:       
+        if k.type == "ceku":
             parking_slots_list[k.id] = k.points
+            parking_slots_list[-k.id] = 'ceku'
+        elif k.type == 'zhiku':
+            parking_slots_list[k.id] = k.points
+            parking_slots_list[-k.id] = 'zhiku'
         if k.type == "parkingArea":
             parking_area_list[k.id] = k.points
 
@@ -2816,19 +2821,66 @@ class SelectParkingSpot(smach.State):
                 # missionThing为“parkingArea" 选择车位
                 rospy.loginfo("available parking slots ids %s" % list(parking_slots_list.keys()))
                 rospy.loginfo("need to choose a parking slot")
-                point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
-                sum_x, sum_y = 0, 0
-                for i in range(len(point_list)):
-                    temp_point = Point32()
-                    temp_point.x = point_list[i][0]
-                    temp_point.y = point_list[i][1]
-                    temp_point.z = 0
-                    sum_x += point_list[i][0]
-                    sum_y += point_list[i][1]
-                    target_parking_slot.append(temp_point)
-                target_parking_slot_center.append(sum_x / 4)
-                target_parking_slot_center.append(sum_y / 4)
-                return 'have_empty_slot'
+                extendDistance = 4
+                parkingArea = []
+                for i in range(0,len(target_parking_area)):
+                    parkingArea.append([target_parking_area[i].x,target_parking_area[i].y])
+                parkingArea = Polygon(parkingArea)
+                obstacle_in_area = []
+                for key in obstacles_list:
+                    for point in obstacles_list[key]:
+                        newPoint = Point([point.x,point.y])
+                        if parkingArea.contains(newPoint):
+                            newObstacle = []
+                            for j in range(0,len(obstacles_list[key])):
+                                newObstacle.append([obstacles_list[key][j].x,obstacles_list[key][j].y])
+                            obstacle_in_area.append(Polygon(newObstacle))
+                            break
+                point_list = []
+                for key in parking_slots_list:
+                    if key > 0:
+                        lot = parking_slots_list[key]
+                        lotList = [[lot[0].x,lot[0].y],[lot[1].x,lot[1].y],[lot[2].x,lot[2].y],[lot[3].x,lot[3].y]]
+                        lotShape = Polygon(lotList)
+                        if parkingArea.contains(lotShape):
+                            if parking_slots_list[-key] == 'ceku':
+                                heading = [lotList[3][0] - lotList[0][0],lotList[3][1] - lotList[0][1]]
+                                heading = heading/np.linalg.norm(heading)
+                                newbound1 = extendDistance*heading + lotList[2]
+                                newbound2 = extendDistance*heading + lotList[3]
+                                lotShape1 = Polygon([lotList[0],lotList[1],newbound1,newbound2])
+                                ocupied = 0
+                                for obs in obstacle_in_area:
+                                    if lotShape1.contains(obs) or lotShape1.intersects(obs) or obs.contains(lotShape1):
+                                        ocupied = 1
+                                if ocupied == 0:
+                                    point_list = lotList
+                                    break
+                            else:
+                                ocupied = 0
+                                for obs in obstacle_in_area:
+                                    if lotShape.contains(obs) or lotShape.intersects(obs) or obs.contains(lotShape):
+                                        ocupied = 1
+                                if ocupied == 0:
+                                    point_list = lotList
+                                    break
+                if point_list == []:
+                    rospy.loginfo('no parkinglot available')
+                    return 'no_empty_slot'
+                else:
+                    # point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
+                    sum_x, sum_y = 0, 0
+                    for i in range(len(point_list)):
+                        temp_point = Point32()
+                        temp_point.x = point_list[i][0]
+                        temp_point.y = point_list[i][1]
+                        temp_point.z = 0
+                        sum_x += point_list[i][0]
+                        sum_y += point_list[i][1]
+                        target_parking_slot.append(temp_point)
+                    target_parking_slot_center.append(sum_x / 4)
+                    target_parking_slot_center.append(sum_y / 4)
+                    return 'have_empty_slot'
 
 
 class DriveAndStopInFront(smach.State):
