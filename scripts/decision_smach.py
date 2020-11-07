@@ -10,8 +10,6 @@ if ros_path in sys.path:
 from numba import jit
 sys.path.append(ros_path)
 """
-
-from numba import jit
 import rospy
 import smach
 import smach_ros
@@ -41,7 +39,7 @@ from shapely.geometry import Point, Polygon
 
 from local_messages.srv import PlanningFeedback, PlanningFeedbackRequest, PlanningFeedbackResponse
 from local_messages.srv import ReGlobalPlanning, ReGlobalPlanningRequest, ReGlobalPlanningResponse
-from local_messages.srv import CurrentMissionFinished, CurrentMissionFinishedRequest, CurrentMissionFinishedResponse
+from local_messages.srv import MissionFinished, MissionFinishedRequest, MissionFinishedResponse
 
 # import all the msg and srv files
 
@@ -290,7 +288,7 @@ class DecisionObstacle:
 
         """
         # The type of the obstacle.
-        # The value could be VEHICLE, BICYCLE, PEDESTRAIN, CONE, WATERHORSE, RAIL, OTHER, etc.
+        # The value could be VEHICLE, BICYCLE, PEDESTRIAN, CONE, WATERHORSE, RAIL, OTHER, etc.
         string type
         
         # The size of the obstacle.
@@ -348,7 +346,7 @@ class DecisionObstacle:
             self.is_moving = False
 
         # record history trajectory for regular obstacles.
-        if self.type == 'VEHICLE' or self.type == 'PEDESTRAIN' or self.type == 'BICYCLE':
+        if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
             self.detected_time.append(obstacle_msg.detectedTime)
             # calculate center point
             center_point_x = np.mean([point_i.x for point_i in obstacle_msg.points])
@@ -637,9 +635,8 @@ rospy.wait_for_service('re_global_planning')
 re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 # mission done - service handler
 rospy.wait_for_service('current_mission_finished')
-current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
+current_mission_finished = rospy.ServiceProxy('current_mission_finished', MissionFinished)
 
-@jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
     左负右正，cur_yaw 为弧度值
@@ -796,7 +793,7 @@ def lights_callback(lights_msg):
                     lights_list[i] = other_light
 
 
-        print(lights_list)
+#        print(lights_list)
         lights_updated_flag = 1
         # rospy.loginfo('lights_data_updated')
 
@@ -812,10 +809,12 @@ def signs_callback(signs_msg):
 
 
 def obstacles_callback(obstacles_msg):
-    # rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
+
     global obstacle_updated_flag
     if obstacle_updated_flag and user_data_copied_flag:
         obstacle_updated_flag = 0
+        rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
+        rospy.loginfo(len(obstacles_msg.obstacles))
         global obstacles_list
         # record road data of the current moment.
         temp_lane_info = lane_list
@@ -835,9 +834,9 @@ def obstacles_callback(obstacles_msg):
         for k in list(obstacles_list.keys()):
             if obstacles_list[k].if_tracked == 0:
                 del obstacles_list[k]
+        rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
 
         obstacle_updated_flag = 1
-    # rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
     # rospy.loginfo('obstacles_data_updated')
 
 
@@ -1191,7 +1190,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                             rear_drivable_s = longitudinal_max
 
                 if lane_index == cur_lane_info.cur_lane_id:
-                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
+#                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
                     if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
                         if not (lateral_max < (-1 / 2 * temp_lane.width - VEHICLE_WIDTH) or lateral_min > -1 / 2 * temp_lane.width):
                             temp_can_change_left = 0
@@ -2103,14 +2102,14 @@ class InLaneDriving(smach.State):
 
             blocked_lane_id_list = []
             global planning_feedback
-            if planning_feedback == RE_CHOOSE_PATH:
-                planning_feedback = 0
-                rospy.loginfo("No way to go!!!")
-                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
-                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
-                re_global_planning_caller(blocked_lane_id_list)
-                output_filler(scenario=NONE)
-                return 'finished'
+#            if planning_feedback == RE_CHOOSE_PATH:
+#                planning_feedback = 0
+#                rospy.loginfo("No way to go!!!")
+#                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
+#                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
+#                re_global_planning_caller(blocked_lane_id_list)
+#                output_filler(scenario=NONE)
+#                return 'finished'
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
