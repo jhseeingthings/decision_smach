@@ -11,8 +11,6 @@ from numba import jit
 sys.path.append(ros_path)
 """
 
-from numba import jit
-
 import rospy
 import smach
 import smach_ros
@@ -640,7 +638,6 @@ re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 rospy.wait_for_service('current_mission_finished')
 current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
 
-@jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
     左负右正，cur_yaw 为弧度值
@@ -1259,7 +1256,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         for i in range(len(lane_offset_id_list)):
             if lane_offset_id_list[i][0] > 20:
                 break
-            if available_lanes[lane_offset_id_list[i][1]].front_drivable_length > 2 * LANE_CHANGE_BASE_LENGTH \
+            if available_lanes[lane_offset_id_list[i][1]].front_drivable_length > EPS \
                     and lane_list[lane_offset_id_list[i][1]].priority > 0:
                 target_lane_id = lane_offset_id_list[i][1]
                 break
