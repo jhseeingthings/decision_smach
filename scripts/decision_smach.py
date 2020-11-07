@@ -1772,10 +1772,10 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
                                      available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
         # if the target lane is beyond search, stop providing reference path.
-        if scenario == 'lane_follow':
-            if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(
-                    available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
-                desired_length = 0
+        # if scenario == 'lane_follow':
+        if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(
+                available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
+            desired_length = 0
 
         rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
         rospy.loginfo("desired length %f" % desired_length)
