@@ -2043,7 +2043,7 @@ class Startup(smach.State):
                             sum_angle = 0
                             global target_parking_area
                             target_parking_area = parking_area_list[mission_ahead.missionThingId]
-                            for i in range(len(target_parking_area)):
+                            for i in range(len(target_parking_area) - 1):
                                 vehicle_to_point1 = np.array([target_parking_area[i].x - user_data.pose_data.mapX,
                                                               target_parking_area[i].y - user_data.pose_data.mapY])
                                 vehicle_to_point2 = np.array([target_parking_area[i + 1].x - user_data.pose_data.mapX,
@@ -2139,7 +2139,7 @@ class InLaneDriving(smach.State):
                             sum_angle = 0
                             global target_parking_area
                             target_parking_area = parking_area_list[mission_ahead.missionThingId]
-                            for i in range(len(target_parking_area)):
+                            for i in range(len(target_parking_area) - 1):
                                 vehicle_to_point1 = np.array([target_parking_area[i].x - user_data.pose_data.mapX,
                                                               target_parking_area[i].y - user_data.pose_data.mapY])
                                 vehicle_to_point2 = np.array([target_parking_area[i + 1].x - user_data.pose_data.mapX,
@@ -2534,13 +2534,14 @@ class CreepToIntersectionWithLights(smach.State):
 
             is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
 
-            next_turn_type = user_data.lane_list[next_lane_id].turn
-            light_status = GREEN
-            if next_turn_type in user_data.lights_list.keys():
-                if user_data.lights_list[next_turn_type] is not None:
-                    light_status = user_data.lights_list[next_turn_type].color
-            if light_status != GREEN:
-                desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
+            if next_lane_id != -1:
+                next_turn_type = user_data.lane_list[next_lane_id].turn
+                light_status = GREEN
+                if next_turn_type in user_data.lights_list.keys():
+                    if user_data.lights_list[next_turn_type] is not None:
+                        light_status = user_data.lights_list[next_turn_type].color
+                if light_status != GREEN:
+                    desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
 
             if is_ready:
                 # 避免找到身后的目标路径
@@ -2988,8 +2989,6 @@ class SelectParkingSlot(smach.State):
                 target_parking_slot_center.append(sum_y / 4)
                 return 'have_empty_slot'
             else:
-
-
                 # missionThing为“parkingArea" 选择车位
                 rospy.loginfo("available parking slots ids %s" % list(parking_slots_list.keys()))
                 rospy.loginfo("need to choose a parking slot")
@@ -3040,7 +3039,6 @@ class SelectParkingSlot(smach.State):
                     rospy.loginfo('no parking slot available')
                     return 'no_empty_slot'
                 else:
-                    # point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
                     sum_x, sum_y = 0, 0
                     for i in range(len(point_list)):
                         temp_point = Point32()
@@ -3052,6 +3050,7 @@ class SelectParkingSlot(smach.State):
                         target_parking_slot.append(temp_point)
                     target_parking_slot_center.append(sum_x / 4)
                     target_parking_slot_center.append(sum_y / 4)
+                    rospy.loginfo("selected parking slot id %d points %s " % (key, list(point_list)))
                     return 'have_empty_slot'
 
 
