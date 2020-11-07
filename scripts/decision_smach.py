@@ -55,17 +55,25 @@ OBSERVE_TRAFFIC_LIGHT = 3
 LANE_END = 4
 DESTINATION = 5
 
+# For a non-zero value, the driver may need to look for traffic lights, and related turnning regulations.
+NO_TURN = 0
+STRAIGHT = 1
+LEFT = 2
+RIGHT = 3
+UTURN = 4
+
+
 # The type of the light.
 ARROW_UP = 1
 ARROW_LEFT = 2
 ARROW_RIGHT = 3
 ARROW_DOWN = 4
-CIRCLE=5
+CIRCLE = 5
 
 # The color of the light.
-RED=1
-YELLOW=2
-GREEN=3
+RED = 1
+YELLOW = 2
+GREEN = 3
 
 # velocity defined by m/s, while the speed upper limit on map is defined by km/h
 
@@ -148,6 +156,11 @@ parking_slots_list = {}
 parking_area_list = {}
 planning_feedback = 0
 
+road_updated_flag = 1
+pose_updated_flag = 1
+lights_updated_flag = 1
+signs_updated_flag = 1
+things_updated_flag = 1
 obstacle_updated_flag = 1
 user_data_copied_flag = 1
 
@@ -733,36 +746,69 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
 
 
 def road_callback(road_msg):
-    global lane_list
-    if user_data_copied_flag:
+    global road_updated_flag
+    if road_updated_flag and user_data_copied_flag:
+        road_updated_flag = 0
+        global lane_list
         road_data = road_msg
         lane_list = {}  # {'id':'lane'}
         for k in range(len(road_data.lanes)):
             lane_list[road_data.lanes[k].id] = road_data.lanes[k]
-        # rospy.loginfo('map_data_updated')
+        road_updated_flag = 1
+            # rospy.loginfo('map_data_updated')
 
 
 def global_pose_callback(global_pose_msg):
-    global global_pose_data
-    if user_data_copied_flag:
+    global pose_updated_flag
+    if pose_updated_flag and user_data_copied_flag:
+        pose_updated_flag = 0
+        global global_pose_data
         global_pose_data = global_pose_msg
+        pose_updated_flag = 1
         # rospy.loginfo('pose_data_updated')
 
 
 def lights_callback(lights_msg):
-    global lights_list
-    if user_data_copied_flag:
+    global lights_updated_flag
+    if lights_updated_flag and user_data_copied_flag:
+        lights_updated_flag = 0
+        global lights_list
         lights_list = {}
+        direction_set = [STRAIGHT, LEFT, RIGHT, UTURN]
+        # observed_direction_set = []
+        other_light = None
+        # the definition align with road turn definition
         for light in lights_msg.lights:
-            lights_list[light.lightType] = light
+            # observed_direction_set.append(light.lightType)
+            if light.lightType == ARROW_LEFT:
+                lights_list[LEFT] = light
+                lights_list[UTURN] = light
+            if light.lightType == ARROW_RIGHT:
+                lights_list[RIGHT] = light
+            if light.lightType == ARROW_DOWN or light.lightType == ARROW_UP:
+                lights_list[STRAIGHT] = light
+            if light.lightType == CIRCLE:
+                other_light = light
+
+        if lights_list.keys():
+            for i in direction_set:
+                if i not in lights_list.keys():
+                    lights_list[i] = other_light
+
+
+        print(lights_list)
+        lights_updated_flag = 1
         # rospy.loginfo('lights_data_updated')
 
 
 def signs_callback(signs_msg):
-    global signs_data
-    if user_data_copied_flag:
+    global signs_updated_flag
+    if signs_updated_flag and user_data_copied_flag:
+        signs_updated_flag = 0
+        global signs_data
         signs_data = signs_msg
         rospy.loginfo('signs_data_updated')
+        signs_updated_flag = 1
 
 
 def obstacles_callback(obstacles_msg):
@@ -796,8 +842,10 @@ def obstacles_callback(obstacles_msg):
 
 
 def things_callback(things_msg):
-    global parking_slots_list, parking_area_list
-    if user_data_copied_flag:
+    global things_updated_flag
+    if things_updated_flag and user_data_copied_flag:
+        things_updated_flag = 0
+        global parking_slots_list, parking_area_list
         things_data = things_msg
         parking_slots_list = {}
         # type is parkingArea or parkingSlot
@@ -810,7 +858,7 @@ def things_callback(things_msg):
                 parking_slots_list[-k.id] = 'zhiku'
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
-
+        things_updated_flag = 1
 
 
 # mission的type有值，找到mission所在的lane id，当车开到目标车道时，开始考虑任务
@@ -903,7 +951,7 @@ def curve_fitting(points_x, points_y, points_num, order):
 
 def user_data_updater(user_data):
     global user_data_copied_flag
-    if obstacle_updated_flag:
+    if obstacle_updated_flag and road_updated_flag and lights_updated_flag and signs_updated_flag and pose_updated_flag and things_updated_flag:
         user_data_copied_flag = 0
         rospy.loginfo('updating data ------ at time %f' % rospy.get_time())
         user_data.lane_list = copy.deepcopy(lane_list)
@@ -2051,8 +2099,8 @@ class InLaneDriving(smach.State):
             user_data_updater(user_data)
 
             blocked_lane_id_list = []
+            global planning_feedback
             if planning_feedback == RE_CHOOSE_PATH:
-                global planning_feedback
                 planning_feedback = 0
                 rospy.loginfo("No way to go!!!")
                 blocked_lane_id_list.append(current_lane_info.cur_lane_id)
@@ -3155,8 +3203,8 @@ class ExecutePark(smach.State):
             else:
                 reference_path = []
 
+            global planning_feedback
             if planning_feedback == PARKING_DONE:
-                global planning_feedback
                 planning_feedback = 0
                 return 'succeeded'
 
@@ -3289,8 +3337,8 @@ class ExitParkingSlot(smach.State):
             else:
                 reference_path = []
 
+            global planning_feedback
             if planning_feedback == EXIT_PARKING_DONE:
-                global planning_feedback
                 planning_feedback = 0
                 return 'back_to_lane'
 
