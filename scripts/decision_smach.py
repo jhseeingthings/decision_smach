@@ -763,6 +763,7 @@ def global_pose_callback(global_pose_msg):
         pose_updated_flag = 0
         global global_pose_data
         global_pose_data = global_pose_msg
+        global_pose_data.mVf = abs(global_pose_data.mVf)
         pose_updated_flag = 1
         # rospy.loginfo('pose_data_updated')
 
