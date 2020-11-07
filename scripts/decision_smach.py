@@ -11,6 +11,7 @@ from numba import jit
 sys.path.append(ros_path)
 """
 
+from numba import jit
 import rospy
 import smach
 import smach_ros
@@ -58,7 +59,7 @@ NO_TURN = 0
 STRAIGHT = 1
 LEFT = 2
 RIGHT = 3
-UTURN = 4
+U_TURN = 4
 
 
 # The type of the light.
@@ -99,7 +100,7 @@ REF_PATH_FOLLOW = 1
 EMERGENCY_BRAKE = 2
 PARK = 3
 EXIT_PARK = 4
-UTURN = 5
+# UTURN = 5
 
 # 动静态障碍物
 # Is the obstacle static or dynamic?
@@ -638,6 +639,7 @@ re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 rospy.wait_for_service('current_mission_finished')
 current_mission_finished = rospy.ServiceProxy('current_mission_finished', CurrentMissionFinished)
 
+@jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
     左负右正，cur_yaw 为弧度值
@@ -771,7 +773,7 @@ def lights_callback(lights_msg):
         lights_updated_flag = 0
         global lights_list
         lights_list = {}
-        direction_set = [STRAIGHT, LEFT, RIGHT, UTURN]
+        direction_set = [STRAIGHT, LEFT, RIGHT, U_TURN]
         # observed_direction_set = []
         other_light = None
         # the definition align with road turn definition
@@ -779,7 +781,7 @@ def lights_callback(lights_msg):
             # observed_direction_set.append(light.lightType)
             if light.lightType == ARROW_LEFT:
                 lights_list[LEFT] = light
-                lights_list[UTURN] = light
+                lights_list[U_TURN] = light
             if light.lightType == ARROW_RIGHT:
                 lights_list[RIGHT] = light
             if light.lightType == ARROW_DOWN or light.lightType == ARROW_UP:
@@ -2531,7 +2533,8 @@ class CreepToIntersectionWithLights(smach.State):
             next_turn_type = user_data.lane_list[next_lane_id].turn
             light_status = GREEN
             if next_turn_type in user_data.lights_list.keys():
-                light_status = user_data.lights_list[next_turn_type].color
+                if user_data.lights_list[next_turn_type] is not None:
+                    light_status = user_data.lights_list[next_turn_type].color
             if light_status != GREEN:
                 desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
 
