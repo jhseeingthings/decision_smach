@@ -849,12 +849,15 @@ def things_callback(things_msg):
         parking_slots_list = {}
         # type is parkingArea or parkingSlot
         for k in things_data.things:
-            if k.type == "ceku":
-                parking_slots_list[k.id] = k.points
-                parking_slots_list[-k.id] = 'ceku'
-            elif k.type == 'zhiku':
-                parking_slots_list[k.id] = k.points
-                parking_slots_list[-k.id] = 'zhiku'
+            if k.type == "parkingSlot":
+                first_edge_distance = math.sqrt(math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
+                second_edge_distance = math.sqrt(math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
+                if first_edge_distance < second_edge_distance:
+                    parking_slots_list[k.id] = k.points
+                    parking_slots_list[-k.id] = 'parallel_slot'
+                else:
+                    parking_slots_list[k.id] = k.points
+                    parking_slots_list[-k.id] = 'vertical_slot'
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
         things_updated_flag = 1
@@ -2984,6 +2987,8 @@ class SelectParkingSlot(smach.State):
                 target_parking_slot_center.append(sum_y / 4)
                 return 'have_empty_slot'
             else:
+
+
                 # missionThing为“parkingArea" 选择车位
                 rospy.loginfo("available parking slots ids %s" % list(parking_slots_list.keys()))
                 rospy.loginfo("need to choose a parking slot")
@@ -3009,9 +3014,9 @@ class SelectParkingSlot(smach.State):
                         slot_list = [[slot[0].x, slot[0].y], [slot[1].x, slot[1].y], [slot[2].x, slot[2].y], [slot[3].x, slot[3].y]]
                         lot_shape = Polygon(slot_list)
                         if parking_area.contains(lot_shape):
-                            if parking_slots_list[-key] == 'ceku':
-                                heading = [slot_list[3][0] - slot_list[0][0],slot_list[3][1] - slot_list[0][1]]
-                                heading = heading/np.linalg.norm(heading)
+                            if parking_slots_list[-key] == 'parallel_slot':
+                                heading = [slot_list[3][0] - slot_list[0][0], slot_list[3][1] - slot_list[0][1]]
+                                heading = heading / np.linalg.norm(heading)
                                 new_bound1 = extend_distance * heading + slot_list[2]
                                 new_bound2 = extend_distance * heading + slot_list[3]
                                 lotShape1 = Polygon([slot_list[0], slot_list[1], new_bound1, new_bound2])
@@ -3031,7 +3036,7 @@ class SelectParkingSlot(smach.State):
                                     point_list = slot_list
                                     break
                 if not point_list:
-                    rospy.loginfo('no parkinglot available')
+                    rospy.loginfo('no parking slot available')
                     return 'no_empty_slot'
                 else:
                     # point_list = [[-36.034, -15.1066], [-40.2424, -12.4123], [-41.5278, -14.4081], [-37.3194, -17.1023]]
