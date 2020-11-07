@@ -55,7 +55,19 @@ OBSERVE_TRAFFIC_LIGHT = 3
 LANE_END = 4
 DESTINATION = 5
 
-# velocity defined by m/s
+# The type of the light.
+ARROW_UP = 1
+ARROW_LEFT = 2
+ARROW_RIGHT = 3
+ARROW_DOWN = 4
+CIRCLE=5
+
+# The color of the light.
+RED=1
+YELLOW=2
+GREEN=3
+
+# velocity defined by m/s, while the speed upper limit on map is defined by km/h
 
 EPS = 0.001
 
@@ -2039,6 +2051,15 @@ class InLaneDriving(smach.State):
             user_data_updater(user_data)
 
             blocked_lane_id_list = []
+            if planning_feedback == RE_CHOOSE_PATH:
+                global planning_feedback
+                planning_feedback = 0
+                rospy.loginfo("No way to go!!!")
+                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
+                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
+                re_global_planning_caller(blocked_lane_id_list)
+                output_filler(scenario=NONE)
+                return 'finished'
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
             rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
@@ -2122,12 +2143,6 @@ class InLaneDriving(smach.State):
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
-
-            if planning_feedback == RE_CHOOSE_PATH:
-                rospy.loginfo("No way to go!!!")
-                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
-                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
-                re_global_planning_caller(blocked_lane_id_list)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2411,9 +2426,9 @@ class ApproachIntersection(smach.State):
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
                           reference_path)
 
-            if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT:
+            if current_lane_info.dist_to_next_stop < 15 and current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT:
                 return 'with_lights'
-            # if current_lane_info.dist_to_next_stop < 10 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
+            # if current_lane_info.dist_to_next_stop < 15 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
             #     return 'without_lights'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2467,6 +2482,13 @@ class CreepToIntersectionWithLights(smach.State):
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection', available_lanes, target_lane_id, next_lane_id)
 
             is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+
+            next_turn_type = user_data.lane_list[next_lane_id].turn
+            light_status = GREEN
+            if next_turn_type in user_data.lights_list.keys():
+                light_status = user_data.lights_list[next_turn_type].color
+            if light_status != GREEN:
+                desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
 
             if is_ready:
                 # 避免找到身后的目标路径
@@ -3134,6 +3156,8 @@ class ExecutePark(smach.State):
                 reference_path = []
 
             if planning_feedback == PARKING_DONE:
+                global planning_feedback
+                planning_feedback = 0
                 return 'succeeded'
 
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id)
@@ -3266,6 +3290,8 @@ class ExitParkingSlot(smach.State):
                 reference_path = []
 
             if planning_feedback == EXIT_PARKING_DONE:
+                global planning_feedback
+                planning_feedback = 0
                 return 'back_to_lane'
 
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id)
