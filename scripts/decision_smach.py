@@ -1582,7 +1582,7 @@ def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, 
                         else:
                             lane_of_interest.start_s = lane_of_interest.end_s - longitudinal_distance
                         lanes_of_interest[index] = lane_of_interest
-
+    rospy.loginfo("lanes of interest ids %s in scenario %s" % (lanes_of_interest.keys(), scenario))
     return lanes_of_interest
 
 
@@ -2768,6 +2768,90 @@ class PassIntersection(smach.State):
 
 
 #########################################
+# STOP LINE
+#########################################
+class ApproachStopLine(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['near_stop', 'exit_stop'],
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_list', 'pose_data', 'parking_slots_list']
+                             )
+
+    def execute(self, user_data):
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in ApproachStopLine")
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+            rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+            if current_lane_info.cur_lane_id != -1:
+                history_lanes_recorder(current_lane_info.cur_lane_id)
+
+            if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
+                # 的找不到当前车道或者当前车道优先级小，进入merge
+                return 'exit_stop'
+
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
+
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+                                                                current_lane_info, available_lanes)
+            rospy.loginfo("target lane id %d" % target_lane_id)
+            rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
+                                                                       current_lane_info,
+                                                                       target_lane_id, user_data.pose_data)
+            rospy.loginfo("speed upper %f" % speed_upper_limit)
+            rospy.loginfo("speed lower %f" % speed_lower_limit)
+
+            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
+
+            # 避免找到身后的目标路径
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
+
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                          target_lane_id)
+
+            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
+
+            if current_lane_info.dist_to_next_stop < 15 and current_lane_info.next_stop_type == STOP_GIVE_WAY:
+                return 'near_stop'
+            # if current_lane_info.dist_to_next_stop < 15 and current_lane_info.next_stop_type != OBSERVE_TRAFFIC_LIGHT:
+            #     return 'without_lights'
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
+
+
+class CreepToStopLine(smach.State):
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['pass'],
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_list', 'pose_data', 'parking_slots_list']
+                             )
+
+    def execute(self, user_data):
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in CreepToStopLine")
+            return 'pass'
+
+#########################################
 # MERGE AND ACROSS
 #########################################
 class CreepForOpportunity(smach.State):
@@ -3695,12 +3779,10 @@ def main():
                                                               )
                 with sm_scenario_stop:
                     smach.StateMachine.add('APPROACH_STOP_LINE', ApproachStopLine(),
-                                           transitions={'with_lights': 'CREEP_TO_STOP_LINE',
+                                           transitions={'near_stop': 'CREEP_TO_STOP_LINE',
                                                         'exit_stop': 'succeeded'})
                     smach.StateMachine.add('CREEP_TO_STOP_LINE', CreepToStopLine(),
-                                           transitions={'enter': 'ENTER_INTERSECTION'})
-                    smach.StateMachine.add('PASS_STOP_LINE', PassStopLine(),
-                                           transitions={'succeeded': 'succeeded'})
+                                           transitions={'pass': 'succeeded'})
                 smach.StateMachine.add('STOP_GIVE_WAY', sm_scenario_stop,
                                        transitions={'succeeded': 'LANE_FOLLOW'})
 
