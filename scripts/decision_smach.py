@@ -10,6 +10,8 @@ if ros_path in sys.path:
 from numba import jit
 sys.path.append(ros_path)
 """
+from numba import jit
+
 import rospy
 import smach
 import smach_ros
@@ -172,6 +174,7 @@ parking_lane_id = 0
 
 history_lane_ids = []
 
+bb = 0
 
 class Pose:
     def __init__(self):
@@ -424,6 +427,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
+                points_x = np.array(points_x)
+                points_y = np.array(points_y)
                 result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
                                          self.history_center_points[-1].y,
                                          self.history_heading[-1])
@@ -441,6 +446,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
+                points_x = np.array(points_x)
+                points_y = np.array(points_y)
                 result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
                                          self.history_center_points[-1].y,
                                          self.history_heading[-1])
@@ -459,6 +466,8 @@ class DecisionObstacle:
                     points_x.append(j.x)
                     points_y.append(j.y)
                 points_num = len(points_x)
+                points_x = np.array(points_x)
+                points_y = np.array(points_y)
                 result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
                                          self.history_center_points[-1].y,
                                          self.history_heading[-1])
@@ -496,6 +505,8 @@ class DecisionObstacle:
                 points_x.append(j.x)
                 points_y.append(j.y)
             points_num = len(points_x)
+            points_x = np.array(points_x)
+            points_y = np.array(points_y)
             for i in range(len(self.detected_time)):
                 result = lane_projection(points_x, points_y, points_num, self.history_center_points[i].x,
                                          self.history_center_points[i].y,
@@ -579,6 +590,8 @@ class DecisionObstacle:
                 points_x.append(j.x)
                 points_y.append(j.y)
             points_num = len(points_x)
+            points_x = np.array(points_x)
+            points_y = np.array(points_y)
             result = lane_projection(points_x, points_y, points_num, self.history_center_points[-1].x,
                                      self.history_center_points[-1].y,
                                      self.history_heading[-1])
@@ -637,6 +650,7 @@ re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 rospy.wait_for_service('current_mission_finished')
 current_mission_finished = rospy.ServiceProxy('current_mission_finished', MissionFinished)
 
+@jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
     左负右正，cur_yaw 为弧度值
@@ -813,8 +827,8 @@ def obstacles_callback(obstacles_msg):
     global obstacle_updated_flag
     if obstacle_updated_flag and user_data_copied_flag:
         obstacle_updated_flag = 0
-        rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
-        rospy.loginfo(len(obstacles_msg.obstacles))
+        a = rospy.get_time()
+        # rospy.loginfo('start receiving obstacle data ------ at time %f' % rospy.get_time())
         global obstacles_list
         # record road data of the current moment.
         temp_lane_info = lane_list
@@ -834,8 +848,9 @@ def obstacles_callback(obstacles_msg):
         for k in list(obstacles_list.keys()):
             if obstacles_list[k].if_tracked == 0:
                 del obstacles_list[k]
-        rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
-
+        # rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
+        b = rospy.get_time()
+        rospy.loginfo('obstacle process duration %f' % (b - a))
         obstacle_updated_flag = 1
     # rospy.loginfo('obstacles_data_updated')
 
@@ -984,6 +999,8 @@ def current_lane_selector(lane_list, pose_data):
             points_x.append(temp_lane.points[j].x)
             points_y.append(temp_lane.points[j].y)
         points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         result = lane_projection(points_x, points_y, points_num, pose_data.mapX, pose_data.mapY, pose_data.mapHeading)
         offset.append(result[3])
         dir_diff.append(result[4])
@@ -1005,7 +1022,7 @@ def current_lane_selector(lane_list, pose_data):
 
     # choose current lane id and index
     DIR_THRESHOLD = 90.0 / 180.0 * 3.14159265
-    OFFSET_THRESHOLD = 1.0
+    OFFSET_THRESHOLD = 2.0
     min_offset = 2.0
     cur_lane_index = -1
     cur_lane_id = -1
@@ -1142,7 +1159,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
             points_x.append(temp_lane.points[j].x)
             points_y.append(temp_lane.points[j].y)
         points_num = len(points_x)
-
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         vehicle_s = available_lanes[lane_index].before_length
         vehicle_l = available_lanes[lane_index].lateral_distance
         # lon_distance_interest = vehicle_s - MIN_TURNING_RADIUS
@@ -1487,6 +1505,8 @@ def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, 
             points_x.append(target_lane.points[j].x)
             points_y.append(target_lane.points[j].y)
         points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         for i in range(len(lane_id)):
             projection_result = lane_projection(points_x, points_y, points_num,
                                                 project_x[i], project_y[i])
@@ -1615,6 +1635,8 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
         points_x.append(target_lane.points[j].x)
         points_y.append(target_lane.points[j].y)
     points_num = len(points_x)
+    points_x = np.array(points_x)
+    points_y = np.array(points_y)
     # 计算自车投影到目标车道的投影点
     vehicle_result = lane_projection(points_x, points_y, points_num,
                                      pose_data.mapX, pose_data.mapY)
@@ -1803,7 +1825,9 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
 
         if next_lane_id != -1:
             next_lane_num = len(lane_list[next_lane_id].points)
-            next_lane_index = available_lanes[next_lane_id].projection_index
+            # next_lane_index = available_lanes[next_lane_id].projection_index
+            next_lane_index = 0
+            # 下一条路从头开始填充
         else:
             next_lane_num, next_lane_index = 0, 0
 
@@ -1811,8 +1835,7 @@ def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, targ
         ref_path.append(lane_list[target_lane_id].points[target_lane_index])
         temp_seg_vec = np.array(
             [lane_list[target_lane_id].points[target_lane_index + 1].x - available_lanes[target_lane_id].projection_x,
-             lane_list[target_lane_id].points[target_lane_index + 1].y - available_lanes[
-                 target_lane_id].projection_y])
+             lane_list[target_lane_id].points[target_lane_index + 1].y - available_lanes[target_lane_id].projection_y])
         temp_seg_length = np.linalg.norm(temp_seg_vec)
         if temp_seg_length > target_length:
             ratio = target_length / temp_seg_length
@@ -1921,6 +1944,11 @@ def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_
         #     filtered_obstacle.predictedHeadings.append(heading)
         filtered_obstacles_list.append(filtered_obstacle)
     message.filteredObstacles = filtered_obstacles_list
+
+    aa = rospy.get_time()
+    global bb
+    rospy.loginfo("decision processing duration %f" % (aa - bb))
+    bb = aa
 
     rospy.loginfo("output message updated at %s" % rospy.get_time())
     decision_msg_pub.publish(message)
@@ -2099,7 +2127,6 @@ class InLaneDriving(smach.State):
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
-
             blocked_lane_id_list = []
             global planning_feedback
 #            if planning_feedback == RE_CHOOSE_PATH:
@@ -3079,6 +3106,8 @@ class DriveAndStopInFront(smach.State):
             points_x.append(temp_lane.points[j].x)
             points_y.append(temp_lane.points[j].y)
         points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
                                          target_parking_slot_center[1])
         rospy.loginfo("parking slot projection x %f" % project_result[0])
@@ -3162,6 +3191,8 @@ class ExecutePark(smach.State):
             points_x.append(temp_lane.points[j].x)
             points_y.append(temp_lane.points[j].y)
         points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
                                          target_parking_slot_center[1])
 
@@ -3295,6 +3326,8 @@ class ExitParkingSlot(smach.State):
             points_x.append(temp_lane.points[j].x)
             points_y.append(temp_lane.points[j].y)
         points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
         project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
                                          target_parking_slot_center[1])
 
