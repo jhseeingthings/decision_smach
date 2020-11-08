@@ -174,6 +174,8 @@ parking_lane_id = 0
 
 history_lane_ids = []
 
+last_stop_x = -1
+
 bb = 0
 
 class Pose:
@@ -201,6 +203,7 @@ class CurrentLaneInfo:
         self.before_length = -1
         self.after_length = -1
         self.next_stop_type = -1
+        self.next_stop_x = -1
         self.dist_to_next_stop = 0
         self.dist_to_next_road = 0
         self.cur_turn_type = -1
@@ -1102,6 +1105,7 @@ def current_lane_selector(lane_list, pose_data):
         if lane_list[cur_lane_id].stopType != 0:
             stop_line_x = lane_list[cur_lane_id].nextStop.x
             stop_line_y = lane_list[cur_lane_id].nextStop.y
+            cur_lane_info.next_stop_x = stop_line_x
             cur_lane_info.dist_to_next_stop = math.sqrt(
                 math.pow(stop_line_x - pose_data.mapX, 2) + pow(stop_line_y - pose_data.mapY, 2))
 
@@ -2780,6 +2784,12 @@ class ApproachStopLine(smach.State):
                              )
 
     def execute(self, user_data):
+        user_data_updater(user_data)
+
+        current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+        global last_stop_x
+        last_stop_x = current_lane_info.next_stop_x
+
         while not rospy.is_shutdown():
             rospy.loginfo("currently in ApproachStopLine")
 
@@ -2849,7 +2859,70 @@ class CreepToStopLine(smach.State):
     def execute(self, user_data):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in CreepToStopLine")
-            return 'pass'
+
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+            rospy.loginfo("current lane id %f" % current_lane_info.cur_lane_id)
+            if current_lane_info.cur_lane_id != -1:
+                history_lanes_recorder(current_lane_info.cur_lane_id)
+
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
+
+            global last_stop_x
+            if abs(current_lane_info.next_stop_x - last_stop_x) < EPS:
+                last_stop_x = -1
+                return 'pass'
+
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+                                                                'lane_follow',
+                                                                current_lane_info, available_lanes)
+            rospy.loginfo("target lane id %d" % target_lane_id)
+            rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
+                                                                       current_lane_info,
+                                                                       target_lane_id, user_data.pose_data)
+            rospy.loginfo("speed upper %f" % speed_upper_limit)
+            rospy.loginfo("speed lower %f" % speed_lower_limit)
+
+            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
+
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection',
+                                                           available_lanes, target_lane_id, next_lane_id)
+
+            is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
+
+            if is_ready:
+                # 避免找到身后的目标路径
+                if desired_length > 0:
+                    reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                                                   desired_length)
+                else:
+                    reference_path = []
+
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
+
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path)
+            else:
+                speed_upper_limit = 0
+
+                obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                              target_lane_id)
+
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path=[])
+
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
 
 #########################################
 # MERGE AND ACROSS
