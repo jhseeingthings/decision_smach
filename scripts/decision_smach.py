@@ -123,7 +123,7 @@ SPEED_UPPER_LIMIT_DEFAULT = 30
 SPEED_LOWER_LIMIT_DEFAULT = 0
 SPEED_UPPER_LIMIT_MERGE = 1.5
 SPEED_UPPER_LIMIT_INTERSECTION = 3
-SPEED_UPPER_LIMIT_APPROACH = 3
+SPEED_UPPER_LIMIT_APPROACH = 5
 
 COMFORT_DEC = 3
 
@@ -2961,7 +2961,7 @@ class PassStopLine(smach.State):
             global wait_duration, action_done
             wait_duration += 1
             global last_stop_x
-            if abs(current_lane_info.next_stop_x - last_stop_x) < EPS:
+            if abs(current_lane_info.next_stop_x - last_stop_x) > EPS:
                 last_stop_x = -1
                 action_done = False
                 return 'pass'
@@ -2981,7 +2981,7 @@ class PassStopLine(smach.State):
             rospy.loginfo("speed lower %f" % speed_lower_limit)
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
-            if wait_duration < 10 and action_done == False:
+            if wait_duration < 20 and action_done == False:
                 desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
             else:
                 wait_duration = 0
