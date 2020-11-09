@@ -3,13 +3,13 @@
 
 
 import sys, time
-
+'''
 ros_path = '/opt/ros/noetic/lib/python2.7/dist-packages'
 if ros_path in sys.path:
     sys.path.remove(ros_path)
 from numba import jit
 sys.path.append(ros_path)
-
+'''
 from numba import jit
 
 import rospy
