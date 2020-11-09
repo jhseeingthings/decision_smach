@@ -3,14 +3,12 @@
 
 
 import sys, time
-'''
 ros_path = '/opt/ros/noetic/lib/python2.7/dist-packages'
 if ros_path in sys.path:
     sys.path.remove(ros_path)
 from numba import jit
 sys.path.append(ros_path)
-'''
-from numba import jit
+
 
 import rospy
 import smach
@@ -2924,7 +2922,7 @@ class CreepToStopLine(smach.State):
                 output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
                               reference_path=[])
 
-            if current_lane_info.dist_to_next_stop < 2 and user_data.pose_data.mVf < 0.5:
+            if current_lane_info.dist_to_next_stop < 2.5 and user_data.pose_data.mVf < 0.5:
                 return 'stopped'
 
             end_time = rospy.get_time()
@@ -2961,7 +2959,8 @@ class PassStopLine(smach.State):
             global wait_duration, action_done
             wait_duration += 1
             global last_stop_x
-            if abs(current_lane_info.next_stop_x - last_stop_x) > EPS:
+            print(current_lane_info.next_stop_x, last_stop_x,action_done)
+            if abs(current_lane_info.next_stop_x - last_stop_x) > EPS and action_done:
                 last_stop_x = -1
                 action_done = False
                 return 'pass'
@@ -2982,8 +2981,10 @@ class PassStopLine(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
             if wait_duration < 20 and action_done == False:
+                print("22222222222222222222222222")
                 desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
             else:
+                print("333333333333333333333333333")
                 wait_duration = 0
                 action_done = True
 
