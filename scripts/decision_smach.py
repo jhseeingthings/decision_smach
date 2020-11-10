@@ -348,7 +348,7 @@ class DecisionObstacle:
 
         self.cur_velocity_vec = obstacle_msg.velocity
         self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
-        if self.cur_velocity > 0.1:
+        if self.cur_velocity > 0.5:
             self.is_moving = True
         else:
             self.is_moving = False
@@ -439,7 +439,7 @@ class DecisionObstacle:
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
-                if abs(temp_distance) < distance_threshold and abs(temp_direction_diff) < direction_threshold:
+                if abs(temp_distance) < distance_threshold:
                     self.cur_lane_id = last_lane_id
                     lane_found_flag = True
         # target lane
@@ -458,7 +458,7 @@ class DecisionObstacle:
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
-                if abs(temp_distance) < distance_threshold and abs(temp_direction_diff) < direction_threshold:
+                if abs(temp_distance) < distance_threshold:
                     self.cur_lane_id = last_target_lane_id
                     lane_found_flag = True
         # if failed, find the current lane.
@@ -478,7 +478,7 @@ class DecisionObstacle:
                                          self.history_heading[-1])
                 temp_distance = result[3]
                 temp_direction_diff = result[4]
-                if abs(temp_distance) < distance_threshold and abs(temp_direction_diff) < direction_threshold and abs(
+                if abs(temp_distance) < distance_threshold and abs(
                         temp_distance) < min_distance:
                     min_distance = abs(temp_distance)
                     this_lane_id = k
@@ -859,6 +859,7 @@ def obstacles_callback(obstacles_msg):
         if process_time > 0.2:
             rospy.loginfo('obstacle process duration %f' % (b - a))
         obstacle_updated_flag = 1
+
     for i in obstacles_list.keys():
         if obstacles_list[i].cur_lane_id > 0:
             print(obstacles_list[i].cur_lane_id, obstacles_list[i].s_record[-1], obstacles_list[i].s_velocity[-1], len(obstacles_list[i].detected_time))
@@ -1732,7 +1733,8 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
                 else:
                     target_slot = i
                     continue
-
+    rospy.loginfo("target insert slot %d" % (target_slot))
+    rospy.loginfo("target_lane_obstacles_s_id %s" % target_lane_obstacles_s_id)
     if target_slot != -1:
         if target_slot == 0:
             if target_lane_obstacles_s_id[target_slot][0] > vehicle_s + desired_safety_distance(pose_data.mVf):
@@ -1745,7 +1747,10 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
                     target_lane_obstacles_s_id[target_slot - 1][0] < vehicle_s - MIN_GAP_DISTANCE:
                 is_ready = True
             else:
-                speed_upper_limit = obstacles_list[target_lane_obstacles_s_id[target_slot][1]].s_velocity[-1] * 0.8
+                if target_slot == len(target_lane_obstacles_s_id) - 1:
+                    speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
+                else:
+                    speed_upper_limit = obstacles_list[target_lane_obstacles_s_id[target_slot][1]].s_velocity[-1] * 0.8
                 is_ready = False
     else:
         # 没有动态障碍物
@@ -1763,7 +1768,7 @@ def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_
     if target_lane_id != -1:
         closest_moving_object_id = available_lanes[target_lane_id].closest_moving_object_id
         if closest_moving_object_id > 0:
-            rospy.loginfo("give way to obstacle id %d" % closest_moving_object_id)
+            rospy.loginfo("give way to obstacle id %d on lane %d" % (closest_moving_object_id, target_lane_id))
             obstacles_list[closest_moving_object_id].sub_decision = GIVE_WAY
             obstacles_list[closest_moving_object_id].safe_distance = MIN_GAP_DISTANCE
 
