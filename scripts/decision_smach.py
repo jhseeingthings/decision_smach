@@ -3,12 +3,12 @@
 
 
 import sys, time
-ros_path = '/opt/ros/noetic/lib/python2.7/dist-packages'
-if ros_path in sys.path:
-    sys.path.remove(ros_path)
+# ros_path = '/opt/ros/noetic/lib/python2.7/dist-packages'
+# if ros_path in sys.path:
+#     sys.path.remove(ros_path)
+# from numba import jit
+# sys.path.append(ros_path)
 from numba import jit
-sys.path.append(ros_path)
-
 
 import rospy
 import smach
@@ -81,7 +81,7 @@ VEHICLE_WIDTH = 1.86
 VEHICLE_LENGTH = 5
 LANE_CHANGE_BASE_LENGTH = 12
 OBSERVE_RANGE = 60
-LANE_WIDTH_BASE = 3
+LANE_WIDTH_BASE = 3.7
 # 障碍物的感知距离（用于对车道可行驶距离做限制，期望路径的距离做限制）
 
 # Planning feedback
@@ -173,6 +173,7 @@ parking_lane_id = 0
 # ready_to_go = 0
 
 history_lane_ids = []
+last_target_lane_id_ugv = -1
 wait_duration = 0
 action_done = False
 last_stop_x = -1
@@ -854,7 +855,9 @@ def obstacles_callback(obstacles_msg):
                 del obstacles_list[k]
         # rospy.loginfo('obstacle process done ------ at time %f' % rospy.get_time())
         b = rospy.get_time()
-        rospy.loginfo('obstacle process duration %f' % (b - a))
+        process_time = b - a
+        if process_time > 0.2:
+            rospy.loginfo('obstacle process duration %f' % (b - a))
         obstacle_updated_flag = 1
     # rospy.loginfo('obstacles_data_updated')
 
@@ -1169,8 +1172,10 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         vehicle_s = available_lanes[lane_index].before_length
         vehicle_l = available_lanes[lane_index].lateral_distance
         # lon_distance_interest = vehicle_s - MIN_TURNING_RADIUS
-        left_margin = -1 / 2 * temp_lane.width + (temp_lane.width - 1.2 * VEHICLE_WIDTH)
-        right_margin = 1 / 2 * temp_lane.width - (temp_lane.width - 1.2 * VEHICLE_WIDTH)
+        # left_margin = -1 / 2 * temp_lane.width + (temp_lane.width - 1.2 * VEHICLE_WIDTH)
+        # right_margin = 1 / 2 * temp_lane.width - (temp_lane.width - 1.2 * VEHICLE_WIDTH)
+        left_margin = 0.5 * LANE_WIDTH_BASE - 1.2 * VEHICLE_WIDTH
+        right_margin = -0.5 * LANE_WIDTH_BASE + 1.2 * VEHICLE_WIDTH
         # front_drivable_s = 100000
         # rear_drivable_s = -100000
         front_drivable_s = available_lanes[lane_index].after_length + available_lanes[lane_index].before_length
@@ -1215,9 +1220,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                 if lane_index == cur_lane_info.cur_lane_id:
 #                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
                     if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
-                        if not (lateral_max < (-1 / 2 * temp_lane.width - VEHICLE_WIDTH) or lateral_min > -1 / 2 * temp_lane.width):
+                        if not (lateral_max < (-0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
                             temp_can_change_left = 0
-                        if not (lateral_max < 1 / 2 * temp_lane.width or lateral_min > (1 / 2 * temp_lane.width + VEHICLE_WIDTH)):
+                        if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
                             print(obstacle_index)
                             temp_can_change_right = 0
             else:
@@ -1464,6 +1469,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
             next_lane_id = -1
             temp_drivable_length = 0
             next_lane_found = 0
+            temp_priority_max = 0
             for index in lane_list[target_lane_id].leadToIds:
                 if lane_list[index].priority == 2 and available_lanes[index].front_drivable_length > temp_drivable_length:
                     next_lane_id = index
@@ -1475,6 +1481,12 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         index].front_drivable_length > temp_drivable_length:
                         next_lane_id = index
                         temp_drivable_length = available_lanes[index].front_drivable_length
+                        next_lane_found = 1
+            if next_lane_found == 0:
+                for index in lane_list[target_lane_id].leadToIds:
+                    if lane_list[index].priority > temp_priority_max:
+                        temp_priority_max = lane_list[index].priority
+                        next_lane_id = index
                         next_lane_found = 1
     return target_lane_id, next_lane_id
 
@@ -2133,7 +2145,7 @@ class InLaneDriving(smach.State):
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
             blocked_lane_id_list = []
-            global planning_feedback
+            global planning_feedback, last_target_lane_id_ugv, wait_duration
 #            if planning_feedback == RE_CHOOSE_PATH:
 #                planning_feedback = 0
 #                rospy.loginfo("No way to go!!!")
@@ -2205,6 +2217,12 @@ class InLaneDriving(smach.State):
                                                                 current_lane_info, available_lanes)
             rospy.loginfo("target lane id %d" % target_lane_id)
             rospy.loginfo("next target lane id %d" % next_lane_id)
+
+            # last_target_lane_id_ugv = target_lane_id
+            # if target_lane_id != last_target_lane_id_ugv and target_lane_id != current_lane_info.cur_lane_id:
+            #     wait_duration += 1
+            # else:
+
 
             if target_lane_id != current_lane_info.cur_lane_id:
                 return 'need_to_change_lane'
@@ -2956,13 +2974,12 @@ class PassStopLine(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
 
-            global wait_duration, action_done
+            global wait_duration, action_done, last_stop_x
             wait_duration += 1
-            global last_stop_x
-            print(current_lane_info.next_stop_x, last_stop_x,action_done)
-            if abs(current_lane_info.next_stop_x - last_stop_x) > EPS and action_done:
+            if abs(current_lane_info.next_stop_x - last_stop_x) > EPS:
                 last_stop_x = -1
                 action_done = False
+                wait_duration = 0
                 return 'pass'
 
             # compare the reward value among the surrounding lanes.
@@ -2981,10 +2998,8 @@ class PassStopLine(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
             if wait_duration < 20 and action_done == False:
-                print("22222222222222222222222222")
                 desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
             else:
-                print("333333333333333333333333333")
                 wait_duration = 0
                 action_done = True
 
