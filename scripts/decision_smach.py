@@ -337,9 +337,7 @@ class DecisionObstacle:
         # A safe distance to be kept from the obstacle.
         float32 safeDistance
         """
-
-
-
+    """
     # update obstacles information, record the history movements of the obstacles.
     def obstacle_update(self, obstacle_msg, lane_list):
         # self.around_lanes = lane_list
@@ -366,7 +364,8 @@ class DecisionObstacle:
             center_point.z = 0
             self.history_center_points.append(center_point)
             self.history_velocity.append(self.cur_velocity)
-            self.history_velocity_vec.append([obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
+            self.history_velocity_vec.append(
+                [obstacle_msg.velocity.x, obstacle_msg.velocity.y, obstacle_msg.velocity.z])
             if self.is_moving:
                 cur_heading = math.atan2(obstacle_msg.velocity.y, obstacle_msg.velocity.x)
                 self.history_heading.append(cur_heading)
@@ -409,6 +408,28 @@ class DecisionObstacle:
         if lane_list != None and self.is_moving:
             # print(self.id, self.type, self.history_center_points)
             self.obstacle_projection(lane_list)
+    """
+
+    # update obstacles information, record the history movements of the obstacles.
+    def obstacle_update(self, obstacle_msg, lane_list):
+        # self.around_lanes = lane_list
+        self.type = obstacle_msg.type
+        self.if_tracked = 1
+        self.cur_bounding_points = obstacle_msg.points
+
+        self.cur_velocity_vec = obstacle_msg.velocity
+        self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
+        if self.cur_velocity > 0.5:
+            self.is_moving = True
+        else:
+            self.is_moving = False
+
+        # record history trajectory for regular obstacles.
+        if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
+            self.width = obstacle_msg.width
+            self.length = obstacle_msg.length
+
+        # self.detected_time.append(obstacle_msg.detectedTime)
 
     # project the obstacle to the lanes, and select current lane.
     def obstacle_projection(self, lane_list):
