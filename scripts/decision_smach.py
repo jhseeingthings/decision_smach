@@ -1455,7 +1455,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         target_lane_id = cur_lane_info.right_lane_id
                     else:
                         target_lane_id = cur_lane_info.cur_lane_id
-
+        if target_lane_id <= 0:
+            target_lane_id = cur_lane_info.cur_lane_id
     # elif scenario == "intersection":
     #     target_lane_id = cur_lane_info.cur_lane_id
 
@@ -2327,6 +2328,10 @@ class LaneChangePreparing(smach.State):
             this_target_lane_id = target_lane_id
             target_lane_id = current_lane_info.cur_lane_id
             rospy.loginfo("final target lane id %d" % target_lane_id)
+
+            if this_target_lane_id == current_lane_info.cur_lane_id:
+                return 'cancel_intention'
+
             is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id, user_data.obstacles_list, user_data.pose_data, user_data.lane_list)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -2349,9 +2354,6 @@ class LaneChangePreparing(smach.State):
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id)
 
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
-
-            if this_target_lane_id == current_lane_info.cur_lane_id:
-                return 'cancel_intention'
 
             if is_ready:
                 return "ready_to_change_lane"
