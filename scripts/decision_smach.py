@@ -713,6 +713,9 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
             projection_x = temp_projection_x
             projection_y = temp_projection_y
             index = i
+
+    if abs(projection_x - map_x[-1]) < EPS:
+        index = map_num - 1
         #############################
         # 存在的问题，如果是环路，不知道是应该投影到这条路的头还是投影到这条路的尾
 
@@ -754,8 +757,11 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     for j in range(index + 1, map_num - 1):
         after_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
     before_length += math.sqrt(math.pow(projection_x - map_x[index], 2) + math.pow(projection_y - map_y[index], 2))
-    after_length += math.sqrt(
-        math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
+    if index == map_num - 1:
+        after_length = 0
+    else:
+        after_length += math.sqrt(
+            math.pow(projection_x - map_x[index + 1], 2) + math.pow(projection_y - map_y[index + 1], 2))
 
     return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
@@ -1049,7 +1055,7 @@ def current_lane_selector(lane_list, pose_data):
         # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
         if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
-                and after_length[i] > EPS:
+                and after_length[i] > EPS :
             count += 1
             priority_id_index_set.append([id_list[i], i])
 
@@ -1080,10 +1086,19 @@ def current_lane_selector(lane_list, pose_data):
         # min_id = 10000
         # min_id_index = -1
         priority_id_index_set.sort()
-        for i in range(count):
-            if abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
-                cur_lane_id = priority_id_index_set[i][0]
-                cur_lane_index = priority_id_index_set[i][1]
+
+        if history_lane_ids != []:
+            for i in range(count):
+                if history_lane_ids[-1] == priority_id_index_set[i][0] and abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
+                    cur_lane_id = priority_id_index_set[i][0]
+                    cur_lane_index = priority_id_index_set[i][1]
+
+        if cur_lane_id == -1:
+            for i in range(count):
+                if abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
+                    cur_lane_id = priority_id_index_set[i][0]
+                    cur_lane_index = priority_id_index_set[i][1]
+                    break
 
         if cur_lane_id == -1:
             cur_lane_id = priority_id_index_set[0][0]
@@ -2063,6 +2078,7 @@ class StartupCheck(smach.State):
                 continue
 
             user_data_updater(user_data)
+
             # check every input
             if user_data.obstacles_list == {}:
                 rospy.loginfo("obstacle message missing.")
