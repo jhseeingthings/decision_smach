@@ -1006,7 +1006,6 @@ def current_lane_selector(lane_list, pose_data):
     available_lanes = {}
     id_list, offset, dir_diff, before_length, after_length = [], [], [], [], []
     project_x, project_y, project_index = [], [], []
-    point_num1 = []
     # rospy.loginfo(lane_list.keys())
     for lane_index in lane_list.keys():
         temp_lane = lane_list[lane_index]
@@ -1026,7 +1025,6 @@ def current_lane_selector(lane_list, pose_data):
         project_x.append(result[0])
         project_y.append(result[1])
         project_index.append(result[2])
-        point_num1.append(points_num)
 
         temp_drivable_lane = DrivableLanes()
         temp_drivable_lane.projection_x = result[0]
@@ -1038,7 +1036,6 @@ def current_lane_selector(lane_list, pose_data):
         temp_drivable_lane.after_length = result[6]
         available_lanes[lane_index] = temp_drivable_lane
 
-    print(project_index,id_list,point_num1)
     # choose current lane id and index
     DIR_THRESHOLD = 90.0 / 180.0 * 3.14159265
     OFFSET_THRESHOLD = 2.0
