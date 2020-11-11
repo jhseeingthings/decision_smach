@@ -1,3 +1,2 @@
 # DecisionSmach
-The finite state machine of decision realized in ROS
-based on unmanned ground vehicle.
+The decision of unmanned ground vehicle realized in ROS based on finite state machine.
