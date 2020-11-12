@@ -136,6 +136,8 @@ TIME_SPACE = 1
 MIN_GAP_DISTANCE = 5  # One car length
 MIN_SAFE_DISTANCE = 0.2
 
+PARALLEL_SLOT = 1
+VERTICAL_SLOT = 2
 
 class MissionAhead:
     def __init__(self):
@@ -337,7 +339,7 @@ class DecisionObstacle:
         # A safe distance to be kept from the obstacle.
         float32 safeDistance
         """
-    """
+
     # update obstacles information, record the history movements of the obstacles.
     def obstacle_update(self, obstacle_msg, lane_list):
         # self.around_lanes = lane_list
@@ -347,7 +349,7 @@ class DecisionObstacle:
 
         self.cur_velocity_vec = obstacle_msg.velocity
         self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
-        if self.cur_velocity > 0.5:
+        if self.cur_velocity > 1:
             self.is_moving = True
         else:
             self.is_moving = False
@@ -408,28 +410,28 @@ class DecisionObstacle:
         if lane_list != None and self.is_moving:
             # print(self.id, self.type, self.history_center_points)
             self.obstacle_projection(lane_list)
-    """
 
-    # update obstacles information, record the history movements of the obstacles.
-    def obstacle_update(self, obstacle_msg, lane_list):
-        # self.around_lanes = lane_list
-        self.type = obstacle_msg.type
-        self.if_tracked = 1
-        self.cur_bounding_points = obstacle_msg.points
 
-        self.cur_velocity_vec = obstacle_msg.velocity
-        self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
-        if self.cur_velocity > 0.5:
-            self.is_moving = True
-        else:
-            self.is_moving = False
-
-        # record history trajectory for regular obstacles.
-        if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
-            self.width = obstacle_msg.width
-            self.length = obstacle_msg.length
-
-        # self.detected_time.append(obstacle_msg.detectedTime)
+    # # update obstacles information, record the history movements of the obstacles.
+    # def obstacle_update(self, obstacle_msg, lane_list):
+    #     # self.around_lanes = lane_list
+    #     self.type = obstacle_msg.type
+    #     self.if_tracked = 1
+    #     self.cur_bounding_points = obstacle_msg.points
+    #
+    #     self.cur_velocity_vec = obstacle_msg.velocity
+    #     self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
+    #     if self.cur_velocity > 0.5:
+    #         self.is_moving = True
+    #     else:
+    #         self.is_moving = False
+    #
+    #     # record history trajectory for regular obstacles.
+    #     if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
+    #         self.width = obstacle_msg.width
+    #         self.length = obstacle_msg.length
+    #
+    #     # self.detected_time.append(obstacle_msg.detectedTime)
 
     # project the obstacle to the lanes, and select current lane.
     def obstacle_projection(self, lane_list):
@@ -667,6 +669,14 @@ class TrafficLight:
         self.remain_time = 0
         self.position_x = 0
         self.position_y = 0
+
+class ParkingSLot:
+    def __init__(self):
+        self.points = []
+        self.type = 0 # parallel_slot = 1, vertical_slot = 2
+        self.lane_id = 0
+        self.lane_projection_point = []
+        self.lane_projection_s = 0
 
 
 # decision output message handler
@@ -944,6 +954,7 @@ def listener():
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("parkingslot", Things, things_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1214,8 +1225,11 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         # lon_distance_interest = vehicle_s - MIN_TURNING_RADIUS
         # left_margin = -1 / 2 * temp_lane.width + (temp_lane.width - 1.2 * VEHICLE_WIDTH)
         # right_margin = 1 / 2 * temp_lane.width - (temp_lane.width - 1.2 * VEHICLE_WIDTH)
-        left_margin = 0.5 * LANE_WIDTH_BASE - 1.2 * VEHICLE_WIDTH
-        right_margin = -0.5 * LANE_WIDTH_BASE + 1.2 * VEHICLE_WIDTH
+        # left_margin = 0.5 * LANE_WIDTH_BASE - 1.2 * VEHICLE_WIDTH
+        # right_margin = -0.5 * LANE_WIDTH_BASE + 1.2 * VEHICLE_WIDTH
+        left_margin = -1 * VEHICLE_WIDTH
+        right_margin = 1 * VEHICLE_WIDTH
+
         # front_drivable_s = 100000
         # rear_drivable_s = -100000
         front_drivable_s = available_lanes[lane_index].after_length + available_lanes[lane_index].before_length
@@ -1252,6 +1266,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                         if longitudinal_min < front_drivable_s:
                             front_drivable_s = longitudinal_min
                             static_object_type = temp_obstacle.type
+                    # if lateral_min < 0 < lateral_max:
+
                 elif longitudinal_min < vehicle_s:
                     if not (lateral_max < left_margin or lateral_min > right_margin):
                         if longitudinal_max > rear_drivable_s:
