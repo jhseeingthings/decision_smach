@@ -132,6 +132,8 @@ TIME_DELAY = 1
 # is estimated as the maximum system delay.
 TIME_SPACE = 1
 # is defined as the minimum required temporal spacing between vehicles, where 1 s approximates a vehicle length per 10 mph.
+TIME_LANE_CHANGE_CONSIDERATION = 1.5
+TIME_LANE_CHANGE_CALM_DOWN = 1
 
 MIN_GAP_DISTANCE = 5  # One car length
 MIN_SAFE_DISTANCE = 0.2
@@ -178,6 +180,8 @@ parking_lane_id = 0
 history_lane_ids = []
 last_target_lane_id_ugv = -1
 wait_duration = 0
+lane_change_consideration_start_time = 0
+lane_change_calm_down_start_time = 0
 action_done = False
 last_stop_x = -1
 scenario_error_handle = REF_PATH_FOLLOW
@@ -673,6 +677,7 @@ class TrafficLight:
 class ParkingSLot:
     def __init__(self):
         self.points = []
+        self.origin = 0 # map_thing = 1, observe_thing = 2
         self.type = 0 # parallel_slot = 1, vertical_slot = 2
         self.lane_id = 0
         self.lane_projection_point = []
@@ -952,9 +957,9 @@ def listener():
     rospy.Subscriber("obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
+    # rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("parkingslot", Things, things_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("parking_slot", Things, things_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1209,6 +1214,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
     rospy.loginfo("available lane list %s " % list(available_lanes.keys()))
     temp_can_change_left = 1
     temp_can_change_right = 1
+    # 以后可以加上感兴趣车道的选取，只把障碍物投影到感兴趣车道上
     for lane_index in available_lanes.keys():
         temp_lane = lane_list[lane_index]
         # if temp_lane.priority <= 0:
@@ -1307,6 +1313,18 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
         moving_obstacle_distance = moving_object_s - vehicle_s
         moving_obstacle_distance = min(front_drivable_length , moving_obstacle_distance)
+
+        # if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS:
+
+
+        # if front_drivable_length <= moving_obstacle_distance:
+        #     front_drivable_length = front_drivable_length
+        #     temp_efficiency = 0
+        # else:
+        #     front_drivable_length = moving_obstacle_distance
+        #     temp_efficiency = temp_efficiency
+        # if moving_obstacle_distance < front_drivable_length:
+        #     lane_efficiency = temp_efficiency
 
         if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
             lane_efficiency = 0
@@ -2220,7 +2238,7 @@ class InLaneDriving(smach.State):
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
             blocked_lane_id_list = []
-            global planning_feedback, last_target_lane_id_ugv, wait_duration
+            global planning_feedback, last_target_lane_id_ugv, lane_change_consideration_start_time
 
             if scenario_error_handle != REF_PATH_FOLLOW:
                 output_filler(scenario=NONE)
@@ -2319,6 +2337,8 @@ class InLaneDriving(smach.State):
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
             if this_target_lane_id_ugv != current_lane_info.cur_lane_id:
+                lane_change_consideration_start_time = rospy.get_time()
+                print(lane_change_consideration_start_time)
                 return 'need_to_change_lane'
 
             end_time = rospy.get_time()
@@ -2343,6 +2363,7 @@ class LaneChangePreparing(smach.State):
                              )
 
     def execute(self, user_data):
+        global lane_change_consideration_start_time, lane_change_calm_down_start_time
         while not rospy.is_shutdown():
             rospy.loginfo("currently in LaneChangePreparing")
 
@@ -2357,6 +2378,7 @@ class LaneChangePreparing(smach.State):
 
             if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
                 # 的找不到当前车道或者当前车道优先级小，进入merge
+                lane_change_consideration_start_time = 0
                 return 'cancel_intention'
 
             available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
@@ -2372,7 +2394,8 @@ class LaneChangePreparing(smach.State):
             target_lane_id = current_lane_info.cur_lane_id
             rospy.loginfo("final target lane id %d" % target_lane_id)
 
-            if this_target_lane_id == current_lane_info.cur_lane_id and this_target_lane_id != last_target_lane_id_ugv:
+            if this_target_lane_id != last_target_lane_id_ugv:
+                lane_change_consideration_start_time = 0
                 return 'cancel_intention'
 
             is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id, user_data.obstacles_list, user_data.pose_data, user_data.lane_list)
@@ -2383,9 +2406,6 @@ class LaneChangePreparing(smach.State):
                                                                        certain_speed_limit=speed_upper_limit_merge)
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
-
-
-
 
             # 避免找到身后的目标路径
             if desired_length > 0:
@@ -2398,7 +2418,9 @@ class LaneChangePreparing(smach.State):
 
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
-            if is_ready:
+            if is_ready and (rospy.get_time() - lane_change_consideration_start_time) > TIME_LANE_CHANGE_CONSIDERATION:
+                lane_change_calm_down_start_time = rospy.get_time()
+                print(lane_change_calm_down_start_time)
                 return "ready_to_change_lane"
 
             end_time = rospy.get_time()
@@ -2424,6 +2446,7 @@ class LaneChanging(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in LaneChanging")
 
+            global lane_change_calm_down_start_time
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
@@ -2444,9 +2467,8 @@ class LaneChanging(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
-            print(last_target_lane_id_ugv)
-            if target_lane_id != last_target_lane_id_ugv:
-                return 'lane_change_cancelled'
+            if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
+                    return 'lane_change_cancelled'
 
             rospy.loginfo("final target lane id %d" % target_lane_id)
             is_ready, speed_upper_limit_merge = merge_priority_decider(target_lane_id, user_data.obstacles_list,
@@ -2910,6 +2932,7 @@ class ApproachStopLine(smach.State):
                                                                        certain_speed_limit=SPEED_UPPER_LIMIT_APPROACH)
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
+            desired_length = min(desired_length, available_lanes[current_lane_info.cur_lane_id].after_length)
 
             # 避免找到身后的目标路径
             if desired_length > 0:
@@ -3953,7 +3976,7 @@ def main():
                                                         'ready_to_change_lane': 'LANE_CHANGING'})
                     smach.StateMachine.add('LANE_CHANGING', LaneChanging(),
                                            transitions={'lane_change_completed': 'IN_LANE_DRIVING',
-                                                        'lane_change_cancelled': 'LANE_CHANGE_PREPARING'})
+                                                        'lane_change_cancelled': 'IN_LANE_DRIVING'})
                     sm_scenario_lane_follow_error_recovery = smach.StateMachine(outcomes=['back_to_normal'],
                                                                                 input_keys=['lane_list',
                                                                                             'obstacles_list',
