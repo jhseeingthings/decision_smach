@@ -922,6 +922,19 @@ def things_callback(things_msg):
                     parking_slots_list[-k.id] = 'vertical_slot'
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
+        print(parking_slots_list.keys())
+        things_updated_flag = 1
+
+
+def parkingArea_callback(things_msg):
+    global things_updated_flag
+    if things_updated_flag and user_data_copied_flag:
+        things_updated_flag = 0
+        global parking_area_list
+        things_data = things_msg
+        for k in things_data.things:
+            if k.type == "parkingArea":
+                parking_area_list[k.id] = k.points
         things_updated_flag = 1
 
 
@@ -952,9 +965,9 @@ def listener():
     rospy.Subscriber("obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_thing", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("parkingslot", Things, things_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("parking_slot", Things, things_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_thing", Things, parkingArea_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
