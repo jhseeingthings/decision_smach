@@ -2483,30 +2483,30 @@ class LaneChanging(smach.State):
             if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
                     return 'lane_change_cancelled'
 
+            if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
+                return 'lane_change_completed'
+
             rospy.loginfo("final target lane id %d" % target_lane_id)
-            is_ready, speed_upper_limit_merge = merge_priority_decider(target_lane_id, user_data.obstacles_list,
+            is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv, user_data.obstacles_list,
                                                                        user_data.pose_data, user_data.lane_list)
             if not is_ready:
                 'lane_change_cancelled'
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
-                                                                       target_lane_id, user_data.pose_data,
+                                                                       last_target_lane_id_ugv, user_data.pose_data,
                                                                        certain_speed_limit=speed_upper_limit_merge)
 
-            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
-
-            if target_lane_id == current_lane_info.cur_lane_id:
-                return 'lane_change_completed'
+            desired_length = desired_length_decider(available_lanes, last_target_lane_id_ugv, speed_upper_limit)
 
             # 避免找到身后的目标路径
             if desired_length > 0:
-                reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
+                reference_path = points_filler(user_data.lane_list, last_target_lane_id_ugv, next_lane_id, available_lanes,
                                                desired_length)
             else:
                 reference_path = []
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id)
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, last_target_lane_id_ugv)
 
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
             end_time = rospy.get_time()
