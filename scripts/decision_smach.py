@@ -974,6 +974,7 @@ def listener():
     rospy.Subscriber("parking_slot", Things, things_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_thing", Things, parkingArea_callback, queue_size=1, buff_size=5000000)
 
+
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
     # 只 spin 有 callback 的语句
@@ -3356,6 +3357,27 @@ class SelectParkingSlot(smach.State):
                              )
 
     def execute(self, user_data):
+        user_data_updater(user_data)
+        current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+        if current_lane_info.cur_lane_id != -1:
+            history_lanes_recorder(current_lane_info.cur_lane_id)
+
+        temp_lane = user_data.lane_list[parking_lane_id]
+        points_x, points_y = [], []
+        parkingslot_sorted = []
+        for j in range(len(temp_lane.points)):
+            points_x.append(temp_lane.points[j].x)
+            points_y.append(temp_lane.points[j].y)
+        points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
+        for key in parking_slots_list:
+            if parking_slots_list[key].lane_id == current_lane_info.cur_lane_id:
+                res = lane_projection(points_x, points_y, points_num, parking_slots_list[key].lane_projection_point.x,
+                                                 parking_slots_list[key].lane_projection_point.y)
+                if res[-2] >= current_lane_info.before_length:
+                            parkingslot_sorted.append([res[-2],key])
+        parkingslot_sorted.sort()
         while not rospy.is_shutdown():
             rospy.loginfo("currently in SelectParkingSlot")
 
@@ -3393,34 +3415,36 @@ class SelectParkingSlot(smach.State):
                                 new_obstacle.append([obstacle_points.x, obstacle_points.y])
                             obstacle_in_area.append(Polygon(new_obstacle))
                             break
+                    
                 point_list = []
-                for key in parking_slots_list:
-                    if key > 0:
-                        slot = parking_slots_list[key]
-                        slot_list = [[slot[0].x, slot[0].y], [slot[1].x, slot[1].y], [slot[2].x, slot[2].y], [slot[3].x, slot[3].y]]
-                        lot_shape = Polygon(slot_list)
-                        if parking_area.contains(lot_shape):
-                            if parking_slots_list[-key] == 'parallel_slot':
-                                heading = [slot_list[3][0] - slot_list[0][0], slot_list[3][1] - slot_list[0][1]]
-                                heading = heading / np.linalg.norm(heading)
-                                new_bound1 = extend_distance * heading + slot_list[2]
-                                new_bound2 = extend_distance * heading + slot_list[3]
-                                lotShape1 = Polygon([slot_list[0], slot_list[1], new_bound1, new_bound2])
-                                occupied = 0
-                                for obs in obstacle_in_area:
-                                    if lotShape1.contains(obs) or lotShape1.intersects(obs) or obs.contains(lotShape1):
-                                        occupied = 1
-                                if occupied == 0:
-                                    point_list = slot_list
-                                    break
-                            else:
-                                occupied = 0
-                                for obs in obstacle_in_area:
-                                    if lot_shape.contains(obs) or lot_shape.intersects(obs) or obs.contains(lot_shape):
-                                        occupied = 1
-                                if occupied == 0:
-                                    point_list = slot_list
-                                    break
+                    
+                for item in parkingslot_sorted:
+                    key = item[1]
+                    slot = parking_slots_list[key]
+                    slot_list = [[slot.points[0].x, slot.points[0].y], [slot.points[1].x, slot.points[1].y], [slot.points[2].x, slot.points[2].y], [slot.points[3].x, slot.points[3].y]]
+                    lot_shape = Polygon(slot_list)
+                    if parking_area.contains(lot_shape):
+                        if parking_slots_list[key].type == 'parallel_slot':
+                            heading = [slot_list[3][0] - slot_list[0][0], slot_list[3][1] - slot_list[0][1]]
+                            heading = heading / np.linalg.norm(heading)
+                            new_bound1 = extend_distance * heading + slot_list[2]
+                            new_bound2 = extend_distance * heading + slot_list[3]
+                            lotShape1 = Polygon([slot_list[0], slot_list[1], new_bound1, new_bound2])
+                            occupied = 0
+                            for obs in obstacle_in_area:
+                                if lotShape1.contains(obs) or lotShape1.intersects(obs) or obs.contains(lotShape1):
+                                    occupied = 1
+                            if occupied == 0:
+                                point_list = slot_list
+                                break
+                        else:
+                            occupied = 0
+                            for obs in obstacle_in_area:
+                                if lot_shape.contains(obs) or lot_shape.intersects(obs) or obs.contains(lot_shape):
+                                    occupied = 1
+                            if occupied == 0:
+                                point_list = slot_list
+                                break
                 if not point_list:
                     rospy.loginfo('no parking slot available')
                     return 'no_empty_slot'
