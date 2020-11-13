@@ -164,7 +164,8 @@ road_updated_flag = 1
 pose_updated_flag = 1
 lights_updated_flag = 1
 signs_updated_flag = 1
-things_updated_flag = 1
+map_things_updated_flag = 1
+parking_slot_updated_flag = 1
 obstacle_updated_flag = 1
 user_data_copied_flag = 1
 
@@ -678,7 +679,7 @@ class ParkingSLot:
     def __init__(self):
         self.points = []
         self.origin = 0 # map_thing = 1, observe_thing = 2
-        self.type = 0 # parallel_slot = 1, vertical_slot = 2
+        self.slot_type = 0 # parallel_slot = 1, vertical_slot = 2
         self.lane_id = 0
         self.lane_projection_point = []
         self.lane_projection_s = 0
@@ -907,40 +908,44 @@ def obstacles_callback(obstacles_msg):
     # rospy.loginfo('obstacles_data_updated')
 
 
-def things_callback(things_msg):
-    global things_updated_flag
-    if things_updated_flag and user_data_copied_flag:
-        things_updated_flag = 0
-        global parking_slots_list, parking_area_list
+def parking_slot_callback(things_msg):
+    global parking_slot_updated_flag
+    if parking_slot_updated_flag and user_data_copied_flag:
+        parking_slot_updated_flag = 0
+        global parking_slots_list
         things_data = things_msg
         parking_slots_list = {}
         # type is parkingArea or parkingSlot
         for k in things_data.things:
             if k.type == "parkingSlot":
+                temp_parking_slot = ParkingSLot()
+                temp_parking_slot.id = k.id
+                temp_parking_slot.points = k.points
+                temp_parking_slot.lane_id = k.laneId
+                temp_parking_slot.lane_projection_point = k.laneProjectedPoint
                 first_edge_distance = math.sqrt(math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
                 second_edge_distance = math.sqrt(math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
                 if first_edge_distance < second_edge_distance:
-                    parking_slots_list[k.id] = k.points
-                    parking_slots_list[-k.id] = 'parallel_slot'
+                    temp_parking_slot.slot_type = PARALLEL_SLOT
                 else:
-                    parking_slots_list[k.id] = k.points
-                    parking_slots_list[-k.id] = 'vertical_slot'
-            if k.type == "parkingArea":
-                parking_area_list[k.id] = k.points
+                    temp_parking_slot.slot_type = VERTICAL_SLOT
+                parking_slots_list[k.id] = temp_parking_slot
+            # if k.type == "parkingArea":
+            #     parking_area_list[k.id] = k.points
         print(parking_slots_list.keys())
-        things_updated_flag = 1
+        parking_slot_updated_flag = 1
 
 
-def parkingArea_callback(things_msg):
-    global things_updated_flag
-    if things_updated_flag and user_data_copied_flag:
-        things_updated_flag = 0
+def map_things_callback(things_msg):
+    global map_things_updated_flag
+    if map_things_updated_flag and user_data_copied_flag:
+        map_things_updated_flag = 0
         global parking_area_list
         things_data = things_msg
         for k in things_data.things:
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
-        things_updated_flag = 1
+        map_things_updated_flag = 1
 
 
 # mission的type有值，找到mission所在的lane id，当车开到目标车道时，开始考虑任务
@@ -971,8 +976,8 @@ def listener():
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("parking_slot", Things, things_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("map_thing", Things, parkingArea_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("map_thing", Things, map_things_callback, queue_size=1, buff_size=5000000)
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1034,7 +1039,7 @@ def curve_fitting(points_x, points_y, points_num, order):
 
 def user_data_updater(user_data):
     global user_data_copied_flag
-    if obstacle_updated_flag and road_updated_flag and lights_updated_flag and signs_updated_flag and pose_updated_flag and things_updated_flag:
+    if obstacle_updated_flag and road_updated_flag and lights_updated_flag and signs_updated_flag and pose_updated_flag and map_things_updated_flag and parking_slot_updated_flag:
         user_data_copied_flag = 0
         rospy.loginfo('updating data ------ at time %f' % rospy.get_time())
         user_data.lane_list = copy.deepcopy(lane_list)
