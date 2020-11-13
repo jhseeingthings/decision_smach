@@ -135,7 +135,7 @@ TIME_SPACE = 1
 TIME_LANE_CHANGE_CONSIDERATION = 1.5
 TIME_LANE_CHANGE_CALM_DOWN = 1
 
-MIN_GAP_DISTANCE = 5  # One car length
+MIN_GAP_DISTANCE = 7.5  # One car length
 MIN_SAFE_DISTANCE = 0.2
 
 PARALLEL_SLOT = 1
@@ -1387,9 +1387,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         temp_drivable_lane.closest_moving_object_type = moving_object_type
         temp_drivable_lane.closest_moving_object_id = moving_object_id
 
-        # print(lane_index, temp_drivable_lane.closest_moving_object_id, temp_drivable_lane.closest_moving_object_type,
-        #       temp_drivable_lane.closest_moving_object_distance, temp_drivable_lane.driving_efficiency,
-        #       temp_drivable_lane.after_length,temp_drivable_lane.front_drivable_length)
+        print(lane_index, temp_drivable_lane.closest_moving_object_id, temp_drivable_lane.closest_moving_object_type,
+               temp_drivable_lane.closest_moving_object_distance, temp_drivable_lane.driving_efficiency,
+               temp_drivable_lane.after_length,temp_drivable_lane.front_drivable_length)
 
     cur_lane_info.can_change_left = temp_can_change_left and cur_lane_info.can_change_left
     cur_lane_info.can_change_right = temp_can_change_right and cur_lane_info.can_change_right
@@ -3863,15 +3863,15 @@ class ConditionJudge(smach.State):
             #     rospy.loginfo("emergency brake because of no lane")
             #     return 'brakeOn'
             rospy.sleep(DECISION_PERIOD)
-            global scenario_error_handle
-            user_data_updater(user_data)
-            if user_data.pose_data is None:
-                continue
-            if user_data.pose_data.localizationMode < 0:
-                scenario_error_handle = NONE
-                rospy.loginfo("StopImmediately because of no global pose")
-            else:
-                scenario_error_handle = REF_PATH_FOLLOW
+#            global scenario_error_handle
+#            user_data_updater(user_data)
+#            if user_data.pose_data is None:
+#                continue
+#            if user_data.pose_data.localizationMode < 0:
+#                scenario_error_handle = NONE
+#                rospy.loginfo("StopImmediately because of no global pose")
+#            else:
+#                scenario_error_handle = REF_PATH_FOLLOW
 
 
 
