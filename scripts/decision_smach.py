@@ -932,7 +932,7 @@ def parking_slot_callback(things_msg):
                 parking_slots_list[k.id] = temp_parking_slot
             # if k.type == "parkingArea":
             #     parking_area_list[k.id] = k.points
-        print(parking_slots_list.keys())
+#        print(parking_slots_list.keys())
         parking_slot_updated_flag = 1
 
 
@@ -946,27 +946,27 @@ def map_things_callback(things_msg):
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
 
-        global parking_slots_list
-        parking_slots_list = {}
-        # type is parkingArea or parkingSlot
-        for k in things_data.things:
-            if k.type == "parkingSlot":
-                temp_parking_slot = ParkingSlot()
-                temp_parking_slot.id = k.id
-                temp_parking_slot.points = k.points
-                temp_parking_slot.lane_id = k.laneId
-                temp_parking_slot.lane_projection_point = k.laneProjectedPoint
-                first_edge_distance = math.sqrt(
-                    math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
-                second_edge_distance = math.sqrt(
-                    math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
-                if first_edge_distance < second_edge_distance:
-                    temp_parking_slot.slot_type = PARALLEL_SLOT
-                else:
-                    temp_parking_slot.slot_type = VERTICAL_SLOT
-                parking_slots_list[k.id] = temp_parking_slot
-            # if k.type == "parkingArea":
-            #     parking_area_list[k.id] = k.points
+#        global parking_slots_list
+#        parking_slots_list = {}
+#        # type is parkingArea or parkingSlot
+#        for k in things_data.things:
+#            if k.type == "parkingSlot":
+#                temp_parking_slot = ParkingSlot()
+#                temp_parking_slot.id = k.id
+#                temp_parking_slot.points = k.points
+#                temp_parking_slot.lane_id = k.laneId
+#                temp_parking_slot.lane_projection_point = k.laneProjectedPoint
+#                first_edge_distance = math.sqrt(
+#                    math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
+#                second_edge_distance = math.sqrt(
+#                    math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
+#                if first_edge_distance < second_edge_distance:
+#                    temp_parking_slot.slot_type = PARALLEL_SLOT
+#                else:
+#                    temp_parking_slot.slot_type = VERTICAL_SLOT
+#                parking_slots_list[k.id] = temp_parking_slot
+#            # if k.type == "parkingArea":
+#            #     parking_area_list[k.id] = k.points
 
         map_things_updated_flag = 1
 
@@ -999,7 +999,7 @@ def listener():
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    # rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_thing", Things, map_things_callback, queue_size=1, buff_size=5000000)
 
 
@@ -3387,6 +3387,7 @@ class SelectParkingSlot(smach.State):
                              )
 
     def execute(self, user_data):
+        rospy.sleep(DECISION_PERIOD)
         user_data_updater(user_data)
         current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
         if current_lane_info.cur_lane_id != -1:
@@ -3402,12 +3403,14 @@ class SelectParkingSlot(smach.State):
         points_x = np.array(points_x)
         points_y = np.array(points_y)
         for key in user_data.parking_slots_list.keys():
-
+            print(key,user_data.parking_slots_list[key].lane_id,current_lane_info.cur_lane_id)
             if user_data.parking_slots_list[key].lane_id == current_lane_info.cur_lane_id:
+                print("aaaaaaaaa")
                 res = lane_projection(points_x, points_y, points_num, user_data.parking_slots_list[key].lane_projection_point.x,
                                                  user_data.parking_slots_list[key].lane_projection_point.y)
-                if res[-2] >= current_lane_info.before_length:
-                            parking_slot_sorted.append([res[-2],key])
+                print(res[-2], current_lane_info.before_length)
+                if current_lane_info.before_length + 10 > res[-2] >= current_lane_info.before_length:
+                    parking_slot_sorted.append([res[-2],key])
         parking_slot_sorted.sort()
         print(parking_slot_sorted)
         while not rospy.is_shutdown():
@@ -3435,16 +3438,17 @@ class SelectParkingSlot(smach.State):
                     parking_area.append([target_parking_area[i].x,target_parking_area[i].y])
                 parking_area = Polygon(parking_area)
                 obstacle_in_area = []
-                for key in obstacles_list:
-                    for point in obstacles_list[key].cur_bounding_points:
+                for key in user_data.obstacles_list.keys():
+                    for point in user_data.obstacles_list[key].cur_bounding_points:
                         new_point = Point([point.x,point.y])
                         if parking_area.contains(new_point):
                             new_obstacle = []
-                            for obstacle_points in obstacles_list[key].cur_bounding_points:
+                            for obstacle_points in user_data.obstacles_list[key].cur_bounding_points:
                                 new_obstacle.append([obstacle_points.x, obstacle_points.y])
                             obstacle_in_area.append(Polygon(new_obstacle))
                             break
-                    
+                print(parking_slot_sorted)
+                print(obstacle_in_area)
                 for item in parking_slot_sorted:
                     key = item[1]
                     slot = user_data.parking_slots_list[key]
@@ -4129,7 +4133,7 @@ def main():
                                                         'exit_park': 'mission_continue'})
                     smach.StateMachine.add('SELECT_PARKING_SPOT', SelectParkingSlot(),
                                            transitions={'have_empty_slot': 'DRIVE_AND_STOP_IN_FRONT',
-                                                        'no_empty_slot': 'MARK_PARKING_SPOT'})
+                                                        'no_empty_slot': 'DRIVE_ALONG_LANE'})
                     smach.StateMachine.add('DRIVE_AND_STOP_IN_FRONT', DriveAndStopInFront(),
                                            transitions={'finished': 'EXECUTE_PARK',
                                                         'exit_park': 'mission_continue'})
