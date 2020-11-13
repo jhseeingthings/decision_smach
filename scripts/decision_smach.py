@@ -1085,6 +1085,7 @@ def current_lane_selector(lane_list, pose_data):
     available_lanes = {}
     id_list, offset, dir_diff, before_length, after_length = [], [], [], [], []
     project_x, project_y, project_index = [], [], []
+    points_num_set = []
     # rospy.loginfo(lane_list.keys())
     for lane_index in lane_list.keys():
         temp_lane = lane_list[lane_index]
@@ -1104,6 +1105,7 @@ def current_lane_selector(lane_list, pose_data):
         project_x.append(result[0])
         project_y.append(result[1])
         project_index.append(result[2])
+        points_num_set.append(points_num)
 
         temp_drivable_lane = DrivableLanes()
         temp_drivable_lane.projection_x = result[0]
@@ -1133,7 +1135,7 @@ def current_lane_selector(lane_list, pose_data):
         # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
         if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
-                and after_length[i] > EPS :
+                and project_index[i] < points_num_set[i] - 1:
             count += 1
             priority_id_index_set.append([id_list[i], i])
 
@@ -1143,7 +1145,7 @@ def current_lane_selector(lane_list, pose_data):
             # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
             if abs_offset < OFFSET_THRESHOLD \
                     and lane_list[id_list[i]].priority == 1 \
-                    and after_length[i] > EPS:
+                    and project_index[i] < points_num_set[i] - 1:
                 count += 1
                 priority_id_index_set.append([id_list[i], i])
 
@@ -1152,7 +1154,7 @@ def current_lane_selector(lane_list, pose_data):
         min_offset_index = -1
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
-            if abs_offset < min_offset:
+            if abs_offset < min_offset and project_index[i] < points_num_set[i] - 1:
                 count = 1
                 min_offset = abs_offset
                 min_offset_id = id_list[i]
@@ -1746,7 +1748,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
         for obstacle_index in obstacles_list.keys():
             obstacle_info = obstacles_list[obstacle_index]
             if obstacle_info.cur_lane_id == lane_index:
-                if obstacle_info.s_record[-1] < loi_info.end_s and obstacle_info.s_record[-1] > loi_info.start_s:
+                if loi_info.end_s > obstacle_info.s_record[-1] > loi_info.start_s:
                     if obstacle_info.s_velocity[-1] > 0:
                         temp_time = (loi_info.end_s - obstacle_info.s_record[-1]) / obstacle_info.s_velocity[-1]
                         rospy.loginfo("obstacle %d coming in %f seconds" % (obstacle_index, temp_time))
@@ -2164,7 +2166,7 @@ class StartupCheck(smach.State):
         parking_lane_id = 0
         target_parking_slot = []
         target_parking_slot_projection = []
-
+        rospy.sleep(4 * DECISION_PERIOD)
         # reset the output
         while not rospy.is_shutdown():
             rospy.loginfo("currently in StartupCheck")
