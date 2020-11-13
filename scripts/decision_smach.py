@@ -1315,7 +1315,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                 if not (lateral_max < left_margin or lateral_min > right_margin):
                     if longitudinal_min < front_drivable_s:
                         front_drivable_s = longitudinal_min
-                        if temp_obstacle.is_moving:
+                        if temp_obstacle.is_moving and temp_obstacle.cur_lane_id > 0:
                             moving_object_s = temp_obstacle.s_record[-1]
                             moving_object_type = temp_obstacle.type
                             moving_object_id = temp_obstacle.id
@@ -2516,8 +2516,8 @@ class LaneChanging(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
-            if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
-                    return 'lane_change_cancelled'
+            # if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
+            #         return 'lane_change_cancelled'
 
             if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
                 return 'lane_change_completed'
