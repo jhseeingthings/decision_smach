@@ -675,7 +675,7 @@ class TrafficLight:
         self.position_x = 0
         self.position_y = 0
 
-class ParkingSLot:
+class ParkingSlot:
     def __init__(self):
         self.points = []
         self.origin = 0 # map_thing = 1, observe_thing = 2
@@ -918,7 +918,7 @@ def parking_slot_callback(things_msg):
         # type is parkingArea or parkingSlot
         for k in things_data.things:
             if k.type == "parkingSlot":
-                temp_parking_slot = ParkingSLot()
+                temp_parking_slot = ParkingSlot()
                 temp_parking_slot.id = k.id
                 temp_parking_slot.points = k.points
                 temp_parking_slot.lane_id = k.laneId
@@ -951,7 +951,7 @@ def map_things_callback(things_msg):
         # type is parkingArea or parkingSlot
         for k in things_data.things:
             if k.type == "parkingSlot":
-                temp_parking_slot = ParkingSLot()
+                temp_parking_slot = ParkingSlot()
                 temp_parking_slot.id = k.id
                 temp_parking_slot.points = k.points
                 temp_parking_slot.lane_id = k.laneId
@@ -2247,7 +2247,7 @@ class Startup(smach.State):
                         # 目标是固定的车位
                         if mission_ahead.missionThingId in parking_slots_list.keys():
                             rospy.loginfo("park into a certain parking slot")
-                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId]
+                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId].points
                             for i in range(len(temp_parking_slot)):
                                 if math.sqrt(math.pow(user_data.pose_data.mapX - temp_parking_slot[i].x, 2) + math.pow(
                                         user_data.pose_data.mapY - temp_parking_slot[i].y, 2)) < 30:
@@ -2348,7 +2348,7 @@ class InLaneDriving(smach.State):
                         # 目标是固定的车位
                         if mission_ahead.missionThingId in parking_slots_list.keys():
                             rospy.loginfo("park into a certain parking slot")
-                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId]
+                            temp_parking_slot = parking_slots_list[mission_ahead.missionThingId].points
                             for i in range(len(temp_parking_slot)):
                                 if math.sqrt(math.pow(user_data.pose_data.mapX - temp_parking_slot[i].x, 2) + math.pow(
                                         user_data.pose_data.mapY - temp_parking_slot[i].y, 2)) < 30:
@@ -3421,7 +3421,7 @@ class SelectParkingSlot(smach.State):
             rospy.loginfo("mission thing id %d" % mission_ahead.missionThingId)
             if mission_ahead.missionThingId in user_data.parking_slots_list.keys():
                 rospy.loginfo("park into a certain parking slot")
-                target_parking_slot = user_data.parking_slots_list[mission_ahead.missionThingId]
+                target_parking_slot = user_data.parking_slots_list[mission_ahead.missionThingId].points
                 target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
                 target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
                 return 'have_empty_slot'
