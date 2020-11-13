@@ -1246,8 +1246,8 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         # right_margin = 1 / 2 * temp_lane.width - (temp_lane.width - 1.2 * VEHICLE_WIDTH)
         # left_margin = 0.5 * LANE_WIDTH_BASE - 1.2 * VEHICLE_WIDTH
         # right_margin = -0.5 * LANE_WIDTH_BASE + 1.2 * VEHICLE_WIDTH
-        left_margin = -1 * VEHICLE_WIDTH
-        right_margin = 1 * VEHICLE_WIDTH
+        left_margin = -0.6 * VEHICLE_WIDTH
+        right_margin = 0.6 * VEHICLE_WIDTH
 
         # front_drivable_s = 100000
         # rear_drivable_s = -100000
@@ -1266,40 +1266,47 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
         for obstacle_index in obstacles_list.keys():
             temp_obstacle = obstacles_list[obstacle_index]
-            if not temp_obstacle.is_moving:
-                lateral_range = []
-                longitudinal_range = []
-                for point in temp_obstacle.cur_bounding_points:
-                    result = lane_projection(points_x, points_y, points_num,
-                                             point.x,
-                                             point.y)
-                    lateral_range.append(result[3])
-                    longitudinal_range.append(result[5])
-                lateral_min = min(lateral_range)
-                lateral_max = max(lateral_range)
-                longitudinal_min = min(longitudinal_range)
-                longitudinal_max = max(longitudinal_range)
-                # longitudinal condition
-                if longitudinal_max > vehicle_s:
-                    if not (lateral_max < left_margin or lateral_min > right_margin):
-                        if longitudinal_min < front_drivable_s:
-                            front_drivable_s = longitudinal_min
+
+            lateral_range = []
+            longitudinal_range = []
+            for point in temp_obstacle.cur_bounding_points:
+                result = lane_projection(points_x, points_y, points_num,
+                                         point.x,
+                                         point.y)
+                lateral_range.append(result[3])
+                longitudinal_range.append(result[5])
+            lateral_min = min(lateral_range)
+            lateral_max = max(lateral_range)
+            longitudinal_min = min(longitudinal_range)
+            longitudinal_max = max(longitudinal_range)
+            # longitudinal condition
+            if longitudinal_max > vehicle_s:
+                if not (lateral_max < left_margin or lateral_min > right_margin):
+                    if longitudinal_min < front_drivable_s:
+                        front_drivable_s = longitudinal_min
+                        if temp_obstacle.is_moving:
+                            moving_object_s = temp_obstacle.s_record[-1]
+                            moving_object_type = temp_obstacle.type
+                            moving_object_id = temp_obstacle.id
+                            temp_efficiency = temp_obstacle.s_velocity[-1]
+                        else:
                             static_object_type = temp_obstacle.type
-                    # if lateral_min < 0 < lateral_max:
+                            temp_efficiency = 0
+                # if lateral_min < 0 < lateral_max:
 
-                elif longitudinal_min < vehicle_s:
-                    if not (lateral_max < left_margin or lateral_min > right_margin):
-                        if longitudinal_max > rear_drivable_s:
-                            rear_drivable_s = longitudinal_max
+            elif longitudinal_min < vehicle_s:
+                if not (lateral_max < left_margin or lateral_min > right_margin):
+                    if longitudinal_max > rear_drivable_s:
+                        rear_drivable_s = longitudinal_max
 
-                if lane_index == cur_lane_info.cur_lane_id:
+            if lane_index == cur_lane_info.cur_lane_id:
 #                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
-                    if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
-                        if not (lateral_max < (-0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
-                            temp_can_change_left = 0
-                        if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
-                            temp_can_change_right = 0
-            else:
+                if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
+                    if not (lateral_max < (-0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
+                        temp_can_change_left = 0
+                    if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
+                        temp_can_change_right = 0
+            if temp_obstacle.is_moving:
                 # 找车前最近的在车道上的动态障碍物的速度
                 if temp_obstacle.cur_lane_id == lane_index:
                     if vehicle_s < temp_obstacle.s_record[-1] < moving_object_s:
@@ -1331,16 +1338,14 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
 
         # if front_drivable_length <= moving_obstacle_distance:
-        #     front_drivable_length = front_drivable_length
         #     temp_efficiency = 0
         # else:
-        #     front_drivable_length = moving_obstacle_distance
         #     temp_efficiency = temp_efficiency
         # if moving_obstacle_distance < front_drivable_length:
         #     lane_efficiency = temp_efficiency
 
-        if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
-            lane_efficiency = 0
+        # if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
+        #     lane_efficiency = 0
             # 如果有静态障碍物限制可行驶距离，车道效率置0
         lane_efficiency = min(temp_efficiency, lane_efficiency)
 
@@ -1355,7 +1360,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
         # print(lane_index, temp_drivable_lane.closest_moving_object_id, temp_drivable_lane.closest_moving_object_type,
         #       temp_drivable_lane.closest_moving_object_distance, temp_drivable_lane.driving_efficiency,
-        #       temp_drivable_lane.after_length)
+        #       temp_drivable_lane.after_length,temp_drivable_lane.front_drivable_length)
 
     cur_lane_info.can_change_left = temp_can_change_left and cur_lane_info.can_change_left
     cur_lane_info.can_change_right = temp_can_change_right and cur_lane_info.can_change_right
@@ -3536,24 +3541,11 @@ class ExecutePark(smach.State):
     def execute(self, user_data):
         # 计算目标车位中心点到泊车目标车位的投影点
         user_data_updater(user_data)
-        temp_lane = user_data.lane_list[parking_lane_id]
-        points_x, points_y = [], []
-        for j in range(len(temp_lane.points)):
-            points_x.append(temp_lane.points[j].x)
-            points_y.append(temp_lane.points[j].y)
-        points_num = len(points_x)
-        points_x = np.array(points_x)
-        points_y = np.array(points_y)
-        project_result = lane_projection(points_x, points_y, points_num, target_parking_slot_center[0],
-                                         target_parking_slot_center[1])
 
         virtual_pose = Pose()
-        virtual_pose.mapX = project_result[0]
-        virtual_pose.mapY = project_result[1]
-        virtual_pose.mapHeading = math.atan2((temp_lane.points[project_result[2] + 1].y -
-                                              temp_lane.points[project_result[2]].y),
-                                             (temp_lane.points[project_result[2] + 1].x -
-                                              temp_lane.points[project_result[2]].x))
+        virtual_pose.mapX = user_data.pose_data.mapX
+        virtual_pose.mapY = user_data.pose_data.mapY
+        virtual_pose.mapHeading = user_data.pose_data.mapHeading
         rospy.loginfo("virtual pose x %f" % virtual_pose.mapX)
         rospy.loginfo("virtual pose y %f" % virtual_pose.mapY)
         rospy.loginfo("virtual pose heading %f" % virtual_pose.mapHeading)
