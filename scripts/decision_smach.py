@@ -133,7 +133,8 @@ TIME_DELAY = 1
 TIME_SPACE = 1
 # is defined as the minimum required temporal spacing between vehicles, where 1 s approximates a vehicle length per 10 mph.
 TIME_LANE_CHANGE_CONSIDERATION = 1.5
-TIME_LANE_CHANGE_CALM_DOWN = 1
+# TIME_LANE_CHANGE_CALM_DOWN = 1
+TIME_LANE_CHANGE_DEADLINE = 15
 
 MIN_GAP_DISTANCE = 7.5  # One car length
 MIN_SAFE_DISTANCE = 0.2
@@ -182,7 +183,7 @@ history_lane_ids = []
 last_target_lane_id_ugv = -1
 wait_duration = 0
 lane_change_consideration_start_time = 0
-lane_change_calm_down_start_time = 0
+# lane_change_calm_down_start_time = 0
 action_done = False
 last_stop_x = -1
 scenario_error_handle = REF_PATH_FOLLOW
@@ -1575,6 +1576,11 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         target_lane_id = cur_lane_info.cur_lane_id
         if target_lane_id <= 0:
             target_lane_id = cur_lane_info.cur_lane_id
+        if target_lane_id == cur_lane_info.left_lane_id and can_change_constraint[1] <= 0:
+            target_lane_id = cur_lane_info.cur_lane_id
+        if target_lane_id == cur_lane_info.right_lane_id and can_change_constraint[2] <= 0:
+            target_lane_id = cur_lane_info.cur_lane_id
+
     # elif scenario == "intersection":
     #     target_lane_id = cur_lane_info.cur_lane_id
 
@@ -1767,7 +1773,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
     return is_ready
 
 
-def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list):
+def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_lanes):
     """
     当已经开始执行 merge， 考虑在动态环境中的优先级，运动中的 merge，考虑超车
     :param target_lane_id:
@@ -1776,18 +1782,8 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
     """
     speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
     # is_ready = True
-    target_lane = lane_list[target_lane_id]
-    points_x, points_y = [], []
-    for j in range(len(target_lane.points)):
-        points_x.append(target_lane.points[j].x)
-        points_y.append(target_lane.points[j].y)
-    points_num = len(points_x)
-    points_x = np.array(points_x)
-    points_y = np.array(points_y)
-    # 计算自车投影到目标车道的投影点
-    vehicle_result = lane_projection(points_x, points_y, points_num,
-                                     pose_data.mapX, pose_data.mapY)
-    vehicle_s = vehicle_result[5]
+
+    vehicle_s = available_lanes[target_lane_id].before_length
 
     # target_lane_obstacles_id = []
     # target_lane_obstacles_s = []
@@ -1839,8 +1835,10 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
                 if target_lane_obstacles_s_id[i+1][0] - target_lane_obstacles_s_id[i][0] > 2 * (
                         desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH):
                     target_slot = i + 1
+                    break
                 else:
                     target_slot = i
+                    continue
             else:
                 front_obstacle = obstacles_list[target_lane_obstacles_s_id[i + 1][1]]
                 rear_obstacle = obstacles_list[target_lane_obstacles_s_id[i][1]]
@@ -1852,8 +1850,11 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, lane_list)
                 else:
                     target_slot = i
                     continue
-    rospy.loginfo("target insert slot %d" % (target_slot))
+
     rospy.loginfo("target_lane_obstacles_s_id %s" % target_lane_obstacles_s_id)
+    rospy.loginfo("vehicle s %f" % vehicle_s)
+    rospy.loginfo("target insert slot %d" % (target_slot))
+
     if target_slot != -1:
         if target_slot == 0:
             if target_lane_obstacles_s_id[target_slot][0] > vehicle_s + desired_safety_distance(pose_data.mVf):
@@ -1938,22 +1939,22 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
     if target_lane_id != -1:
         desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
         # if there is a static obstacle in the way
-        if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
-            target_lane_id].front_drivable_length > EPS:
-            # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
-            #     target_lane_id].closest_moving_object_type != 'VEHICLE':
-            # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
-            if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
-                pass
-            else:
-                desired_length = min(desired_length,
-                                     available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
+        # if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
+        #     target_lane_id].front_drivable_length > EPS:
+        #     # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
+        #     #     target_lane_id].closest_moving_object_type != 'VEHICLE':
+        #     # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
+        #     if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
+        #         pass
+        #     else:
+        #         desired_length = min(desired_length,
+        #                              available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
         # if the target lane is beyond search, stop providing reference path.
-        # if scenario == 'lane_follow':
-        if abs(available_lanes[target_lane_id].lateral_distance) > 5 or abs(
-                available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
-            desired_length = 0
+        if scenario == 'lane_follow':
+            if abs(available_lanes[target_lane_id].lateral_distance) > 10 or abs(
+                    available_lanes[target_lane_id].dir_diff_signed > math.pi / 2):
+                desired_length = 0
 
         rospy.loginfo("drivable length %f" % available_lanes[target_lane_id].front_drivable_length)
         rospy.loginfo("desired length %f" % desired_length)
@@ -2443,11 +2444,11 @@ class LaneChangePreparing(smach.State):
             target_lane_id = current_lane_info.cur_lane_id
             rospy.loginfo("final target lane id %d" % target_lane_id)
 
-            if this_target_lane_id != last_target_lane_id_ugv:
+            if this_target_lane_id != last_target_lane_id_ugv or current_lane_info.cur_lane_id == last_target_lane_id_ugv:
                 lane_change_consideration_start_time = 0
                 return 'cancel_intention'
 
-            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id, user_data.obstacles_list, user_data.pose_data, user_data.lane_list)
+            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id, user_data.obstacles_list, user_data.pose_data, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -2522,11 +2523,15 @@ class LaneChanging(smach.State):
             if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
                 return 'lane_change_completed'
 
+
             rospy.loginfo("final target lane id %d" % target_lane_id)
             is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv, user_data.obstacles_list,
-                                                                       user_data.pose_data, user_data.lane_list)
+                                                                       user_data.pose_data, available_lanes)
             if not is_ready:
                 'lane_change_cancelled'
+
+            if (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_DEADLINE:
+                return 'lane_change_cancelled'
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
