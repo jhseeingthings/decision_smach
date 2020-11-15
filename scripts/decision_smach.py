@@ -298,7 +298,7 @@ class DecisionObstacle:
         self.predicted_center_points = []
         self.predicted_headings = []
 
-        self.sub_decision = 0
+        self.sub_decision = AVOID_COLLISION
         self.safe_distance = MIN_SAFE_DISTANCE
 
         self.obstacle_update(obstacle_msg, lane_list)
@@ -560,7 +560,7 @@ class DecisionObstacle:
         self.predicted_headings = []
         self.predicted_headings.append(self.history_heading[-1])
         self.predicted_center_points.append(self.history_center_points[-1])
-        # self.sub_decision = 0
+        self.sub_decision = AVOID_COLLISION
         if self.type == "VEHICLE" or self.type == "PEDESTRIAN" or self.type == "BICYCLE":
             self.safe_distance = 0.5
 
@@ -947,27 +947,27 @@ def map_things_callback(things_msg):
             if k.type == "parkingArea":
                 parking_area_list[k.id] = k.points
 
-#        global parking_slots_list
-#        parking_slots_list = {}
-#        # type is parkingArea or parkingSlot
-#        for k in things_data.things:
-#            if k.type == "parkingSlot":
-#                temp_parking_slot = ParkingSlot()
-#                temp_parking_slot.id = k.id
-#                temp_parking_slot.points = k.points
-#                temp_parking_slot.lane_id = k.laneId
-#                temp_parking_slot.lane_projection_point = k.laneProjectedPoint
-#                first_edge_distance = math.sqrt(
-#                    math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
-#                second_edge_distance = math.sqrt(
-#                    math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
-#                if first_edge_distance < second_edge_distance:
-#                    temp_parking_slot.slot_type = PARALLEL_SLOT
-#                else:
-#                    temp_parking_slot.slot_type = VERTICAL_SLOT
-#                parking_slots_list[k.id] = temp_parking_slot
-#            # if k.type == "parkingArea":
-#            #     parking_area_list[k.id] = k.points
+        global parking_slots_list
+        parking_slots_list = {}
+        # type is parkingArea or parkingSlot
+        for k in things_data.things:
+            if k.type == "parkingSlot":
+                temp_parking_slot = ParkingSlot()
+                temp_parking_slot.id = k.id
+                temp_parking_slot.points = k.points
+                temp_parking_slot.lane_id = k.laneId
+                temp_parking_slot.lane_projection_point = k.laneProjectedPoint
+                first_edge_distance = math.sqrt(
+                    math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
+                second_edge_distance = math.sqrt(
+                    math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
+                if first_edge_distance < second_edge_distance:
+                    temp_parking_slot.slot_type = PARALLEL_SLOT
+                else:
+                    temp_parking_slot.slot_type = VERTICAL_SLOT
+                parking_slots_list[k.id] = temp_parking_slot
+            # if k.type == "parkingArea":
+            #     parking_area_list[k.id] = k.points
 
         map_things_updated_flag = 1
 
@@ -1000,7 +1000,7 @@ def listener():
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
+#    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_thing", Things, map_things_callback, queue_size=1, buff_size=5000000)
 
 
@@ -1390,9 +1390,9 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         temp_drivable_lane.closest_moving_object_type = moving_object_type
         temp_drivable_lane.closest_moving_object_id = moving_object_id
 
-        print(lane_index, temp_drivable_lane.closest_moving_object_id, temp_drivable_lane.closest_moving_object_type,
-               temp_drivable_lane.closest_moving_object_distance, temp_drivable_lane.driving_efficiency,
-               temp_drivable_lane.after_length,temp_drivable_lane.front_drivable_length)
+#        print(lane_index, temp_drivable_lane.closest_moving_object_id, temp_drivable_lane.closest_moving_object_type,
+#               temp_drivable_lane.closest_moving_object_distance, temp_drivable_lane.driving_efficiency,
+#               temp_drivable_lane.after_length,temp_drivable_lane.front_drivable_length)
 
     cur_lane_info.can_change_left = temp_can_change_left and cur_lane_info.can_change_left
     cur_lane_info.can_change_right = temp_can_change_right and cur_lane_info.can_change_right
@@ -1939,16 +1939,16 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
     if target_lane_id != -1:
         desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
         # if there is a static obstacle in the way
-        # if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
-        #     target_lane_id].front_drivable_length > EPS:
-        #     # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
-        #     #     target_lane_id].closest_moving_object_type != 'VEHICLE':
-        #     # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
-        #     if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
-        #         pass
-        #     else:
-        #         desired_length = min(desired_length,
-        #                              available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
+#        if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
+#             target_lane_id].front_drivable_length > EPS:
+#             # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
+#             #     target_lane_id].closest_moving_object_type != 'VEHICLE':
+#             # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
+#            if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
+#                pass
+#            else:
+#                 desired_length = min(desired_length,
+#                                      available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
         # if the target lane is beyond search, stop providing reference path.
         if scenario == 'lane_follow':
@@ -3568,8 +3568,9 @@ class DriveAndStopInFront(smach.State):
                                                desired_length)
             else:
                 reference_path = []
-
-            if math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2)) < STOP_BASE_LENGTH and user_data.pose_data.mVf < 0.5:
+            dis_to_slot = math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2))
+            print(dis_to_slot)
+            if dis_to_slot < STOP_BASE_LENGTH and user_data.pose_data.mVf < 0.5:
                 return 'finished'
 
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id)
@@ -3874,15 +3875,15 @@ class ConditionJudge(smach.State):
             #     rospy.loginfo("emergency brake because of no lane")
             #     return 'brakeOn'
             rospy.sleep(DECISION_PERIOD)
-#            global scenario_error_handle
-#            user_data_updater(user_data)
-#            if user_data.pose_data is None:
-#                continue
-#            if user_data.pose_data.localizationMode < 0:
-#                scenario_error_handle = NONE
-#                rospy.loginfo("StopImmediately because of no global pose")
-#            else:
-#                scenario_error_handle = REF_PATH_FOLLOW
+            global scenario_error_handle
+            user_data_updater(user_data)
+            if user_data.pose_data is None:
+                continue
+            if user_data.pose_data.localizationMode < 0:
+                scenario_error_handle = NONE
+                rospy.loginfo("StopImmediately because of no global pose")
+            else:
+                scenario_error_handle = REF_PATH_FOLLOW
 
 
 
