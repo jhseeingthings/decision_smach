@@ -181,6 +181,7 @@ parking_lane_id = 0
 
 history_lane_ids = []
 last_target_lane_id_ugv = -1
+last_chosen_lane_id_ugv = -1
 wait_duration = 0
 lane_change_consideration_start_time = 0
 # lane_change_calm_down_start_time = 0
@@ -1216,7 +1217,7 @@ def current_lane_selector(lane_list, pose_data):
         cur_lane_info.dist_to_next_road = after_length[cur_lane_index]
         cur_lane_info.cur_turn_type = lane_list[cur_lane_id].turn
 
-        # print(cur_lane_info.next_stop_type, cur_lane_info.dist_to_next_stop, cur_lane_info.dist_to_next_road, cur_lane_info.cur_turn_type)
+        print(cur_lane_info.next_stop_type, cur_lane_info.dist_to_next_stop, cur_lane_info.dist_to_next_road, cur_lane_info.cur_turn_type)
 
         cur_lane_info.can_change_left = lane_list[cur_lane_id].canChangeLeft
         cur_lane_info.can_change_right = lane_list[cur_lane_id].canChangeRight
@@ -1622,8 +1623,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                         next_lane_id = index
                         next_lane_found = 1
 
-    rospy.loginfo("target lane id %d" % target_lane_id)
-    rospy.loginfo("next target lane id %d" % next_lane_id)
+    rospy.loginfo("this target lane id %d" % target_lane_id)
+    rospy.loginfo("next target lane id%d" % next_lane_id)
     return target_lane_id, next_lane_id
 
 
@@ -1735,7 +1736,7 @@ def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, 
                         else:
                             lane_of_interest.start_s = lane_of_interest.end_s - longitudinal_distance
                         lanes_of_interest[index] = lane_of_interest
-    rospy.loginfo("lanes of interest ids %s in scenario %s" % (lanes_of_interest.keys(), scenario))
+    rospy.loginfo("lanes of interest ids %s in scenario%s" % (lanes_of_interest.keys(), scenario))
     return lanes_of_interest
 
 
@@ -2288,7 +2289,7 @@ class InLaneDriving(smach.State):
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
             blocked_lane_id_list = []
-            global planning_feedback, last_target_lane_id_ugv, lane_change_consideration_start_time
+            global planning_feedback, last_target_lane_id_ugv, last_chosen_lane_id_ugv, lane_change_consideration_start_time
 
             if scenario_error_handle != REF_PATH_FOLLOW:
                 output_filler(scenario=NONE)
@@ -2362,10 +2363,12 @@ class InLaneDriving(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
-
             this_target_lane_id_ugv = target_lane_id
-            last_target_lane_id_ugv = target_lane_id
-            target_lane_id = current_lane_info.cur_lane_id
+
+            if last_chosen_lane_id_ugv == this_target_lane_id_ugv:
+                target_lane_id = last_chosen_lane_id_ugv
+            else:
+                target_lane_id = current_lane_info.cur_lane_id
 
             rospy.loginfo("final target lane id %d" % target_lane_id)
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -2386,7 +2389,10 @@ class InLaneDriving(smach.State):
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
             output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
 
+            last_chosen_lane_id_ugv = target_lane_id
+
             if this_target_lane_id_ugv != current_lane_info.cur_lane_id:
+                last_target_lane_id_ugv = this_target_lane_id_ugv
                 lane_change_consideration_start_time = rospy.get_time()
                 print(lane_change_consideration_start_time)
                 return 'need_to_change_lane'
@@ -2413,7 +2419,7 @@ class LaneChangePreparing(smach.State):
                              )
 
     def execute(self, user_data):
-        global lane_change_consideration_start_time, lane_change_calm_down_start_time
+        global lane_change_consideration_start_time, lane_change_calm_down_start_time, last_chosen_lane_id_ugv
         while not rospy.is_shutdown():
             rospy.loginfo("currently in LaneChangePreparing")
 
@@ -2440,15 +2446,21 @@ class LaneChangePreparing(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
-            this_target_lane_id = target_lane_id
-            target_lane_id = current_lane_info.cur_lane_id
+            this_target_lane_id_ugv = target_lane_id
+            if last_chosen_lane_id_ugv == this_target_lane_id_ugv:
+                target_lane_id = last_chosen_lane_id_ugv
+            else:
+                target_lane_id = current_lane_info.cur_lane_id
+
+            last_chosen_lane_id_ugv = target_lane_id
+
             rospy.loginfo("final target lane id %d" % target_lane_id)
 
-            if this_target_lane_id != last_target_lane_id_ugv or current_lane_info.cur_lane_id == last_target_lane_id_ugv:
+            if this_target_lane_id_ugv != last_target_lane_id_ugv or current_lane_info.cur_lane_id == last_target_lane_id_ugv:
                 lane_change_consideration_start_time = 0
                 return 'cancel_intention'
 
-            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id, user_data.obstacles_list, user_data.pose_data, available_lanes)
+            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id_ugv, user_data.obstacles_list, user_data.pose_data, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -2496,7 +2508,7 @@ class LaneChanging(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in LaneChanging")
 
-            global lane_change_calm_down_start_time
+            global lane_change_calm_down_start_time, last_chosen_lane_id_ugv
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
@@ -2516,6 +2528,8 @@ class LaneChanging(smach.State):
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
+
+            last_chosen_lane_id_ugv = target_lane_id
 
             # if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
             #         return 'lane_change_cancelled'
