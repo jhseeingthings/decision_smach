@@ -1317,7 +1317,14 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                             # moving_object_s = temp_obstacle.s_record[-1]
                             # moving_object_type = temp_obstacle.type
                             regular_obstacle_id = temp_obstacle.id
-                            temp_efficiency = temp_obstacle.s_velocity[-1]
+                            if temp_obstacle.cur_lane_id > 0:
+                                temp_efficiency = temp_obstacle.s_velocity[-1]
+                            else:
+                                result = lane_projection(points_x, points_y, points_num,
+                                                         temp_obstacle.history_center_points[-1].x,
+                                                         temp_obstacle.history_center_points[-1].y,
+                                                         temp_obstacle.history_heading[-1])
+                                temp_efficiency = math.cos(result[4]) * temp_obstacle.history_velocity[-1]
                         else:
                             # static_object_type = temp_obstacle.type
                             temp_efficiency = 0
@@ -1753,7 +1760,6 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
             if obstacle_info.cur_lane_id == lane_index:
                 if loi_info.end_s > obstacle_info.s_record[-1] > loi_info.start_s:
                     if obstacle_info.s_velocity[-1] > 0:
-                        print(loi_info.end_s - obstacle_info.s_record[-1], obstacle_info.s_velocity[-1])
                         temp_time = (loi_info.end_s - obstacle_info.s_record[-1]) / obstacle_info.s_velocity[-1]
                         rospy.loginfo("obstacle %d coming in %f seconds" % (obstacle_index, temp_time))
                         if temp_time < min_time:
