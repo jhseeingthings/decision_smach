@@ -414,31 +414,15 @@ class DecisionObstacle:
 
         # rospy.loginfo("start processing obstacle %d" % self.id)
         # project the obstacle to the lanes, and select current lane.
-        if lane_list != None and self.is_moving:
+        if lane_list != None and (self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE'):
             # print(self.id, self.type, self.history_center_points)
             self.obstacle_projection(lane_list)
-
-
-    # # update obstacles information, record the history movements of the obstacles.
-    # def obstacle_update(self, obstacle_msg, lane_list):
-    #     # self.around_lanes = lane_list
-    #     self.type = obstacle_msg.type
-    #     self.if_tracked = 1
-    #     self.cur_bounding_points = obstacle_msg.points
-    #
-    #     self.cur_velocity_vec = obstacle_msg.velocity
-    #     self.cur_velocity = math.sqrt(math.pow(obstacle_msg.velocity.x, 2) + math.pow(obstacle_msg.velocity.y, 2))
-    #     if self.cur_velocity > 0.5:
-    #         self.is_moving = True
-    #     else:
-    #         self.is_moving = False
-    #
-    #     # record history trajectory for regular obstacles.
-    #     if self.type == 'VEHICLE' or self.type == 'PEDESTRIAN' or self.type == 'BICYCLE':
-    #         self.width = obstacle_msg.width
-    #         self.length = obstacle_msg.length
-    #
-    #     # self.detected_time.append(obstacle_msg.detectedTime)
+        else:
+            self.lane_lateral_diff = []
+            self.dir_diff = []
+            self.s_record = []
+            self.s_velocity = []
+            self.l_velocity = []
 
     # project the obstacle to the lanes, and select current lane.
     def obstacle_projection(self, lane_list):
@@ -554,7 +538,12 @@ class DecisionObstacle:
                 self.l_velocity.append(math.sin(result[4]) * self.history_velocity[i])
             # rospy.loginfo("3333333333333333333333333333 %d %d %f %f"%(self.id, self.history_lane_ids[-1], self.s_velocity[-1], self.s_record[-1]))
         else:
-            pass
+            self.lane_lateral_diff = []
+            self.dir_diff = []
+            self.s_record = []
+            self.s_velocity = []
+            self.l_velocity = []
+
 
     def obstacle_behavior_initialization(self):
         self.predicted_center_points = []
@@ -1217,7 +1206,7 @@ def current_lane_selector(lane_list, pose_data):
         cur_lane_info.dist_to_next_road = after_length[cur_lane_index]
         cur_lane_info.cur_turn_type = lane_list[cur_lane_id].turn
 
-        print(cur_lane_info.next_stop_type, cur_lane_info.dist_to_next_stop, cur_lane_info.dist_to_next_road, cur_lane_info.cur_turn_type)
+        # print(cur_lane_info.next_stop_type, cur_lane_info.dist_to_next_stop, cur_lane_info.dist_to_next_road, cur_lane_info.cur_turn_type)
 
         cur_lane_info.can_change_left = lane_list[cur_lane_id].canChangeLeft
         cur_lane_info.can_change_right = lane_list[cur_lane_id].canChangeRight
@@ -1325,7 +1314,6 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                         else:
                             static_object_type = temp_obstacle.type
                             temp_efficiency = 0
-                # if lateral_min < 0 < lateral_max:
 
             elif longitudinal_min < vehicle_s:
                 if not (lateral_max < left_margin or lateral_min > right_margin):
@@ -1333,12 +1321,12 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
                         rear_drivable_s = longitudinal_max
 
             if lane_index == cur_lane_info.cur_lane_id:
-#                    print(longitudinal_max, longitudinal_min, lateral_max, lateral_min, vehicle_s, right_margin)
                 if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
                     if not (lateral_max < (-0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
                         temp_can_change_left = 0
                     if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
                         temp_can_change_right = 0
+
             if temp_obstacle.is_moving:
                 # 找车前最近的在车道上的动态障碍物的速度
                 if temp_obstacle.cur_lane_id == lane_index:
@@ -1368,7 +1356,6 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
         moving_obstacle_distance = min(front_drivable_length , moving_obstacle_distance)
 
         # if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS:
-
 
         # if front_drivable_length <= moving_obstacle_distance:
         #     temp_efficiency = 0
@@ -1757,6 +1744,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
             if obstacle_info.cur_lane_id == lane_index:
                 if loi_info.end_s > obstacle_info.s_record[-1] > loi_info.start_s:
                     if obstacle_info.s_velocity[-1] > 0:
+                        print(loi_info.end_s - obstacle_info.s_record[-1], obstacle_info.s_velocity[-1])
                         temp_time = (loi_info.end_s - obstacle_info.s_record[-1]) / obstacle_info.s_velocity[-1]
                         rospy.loginfo("obstacle %d coming in %f seconds" % (obstacle_index, temp_time))
                         if temp_time < min_time:
@@ -1884,7 +1872,7 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
 def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_lane_id = -1, target_lane_id = -1):
     for i in obstacles_list.keys():
         temp_obstacle = obstacles_list[i]
-        if temp_obstacle.is_moving == True:
+        if temp_obstacle.type == 'VEHICLE' or temp_obstacle.type == 'BICYCLE' or temp_obstacle.type == 'PEDESTRIAN':
             temp_obstacle.obstacle_behavior_initialization()
     if target_lane_id != -1:
         closest_moving_object_id = available_lanes[target_lane_id].closest_moving_object_id
@@ -2394,7 +2382,6 @@ class InLaneDriving(smach.State):
             if this_target_lane_id_ugv != current_lane_info.cur_lane_id:
                 last_target_lane_id_ugv = this_target_lane_id_ugv
                 lane_change_consideration_start_time = rospy.get_time()
-                print(lane_change_consideration_start_time)
                 return 'need_to_change_lane'
 
             end_time = rospy.get_time()
@@ -2482,7 +2469,6 @@ class LaneChangePreparing(smach.State):
 
             if is_ready and (rospy.get_time() - lane_change_consideration_start_time) > TIME_LANE_CHANGE_CONSIDERATION:
                 lane_change_calm_down_start_time = rospy.get_time()
-                print(lane_change_calm_down_start_time)
                 return "ready_to_change_lane"
 
             end_time = rospy.get_time()
