@@ -3449,6 +3449,7 @@ class SelectParkingSlot(smach.State):
             rospy.loginfo("mission thing id %d" % mission_ahead.missionThingId)
             if mission_ahead.missionThingId in user_data.parking_slots_list.keys():
                 rospy.loginfo("park into a certain parking slot")
+                target_slot_id = mission_ahead.missionThingId
                 target_parking_slot = user_data.parking_slots_list[mission_ahead.missionThingId].points
                 target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
                 target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
