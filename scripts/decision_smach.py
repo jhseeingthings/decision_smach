@@ -43,6 +43,8 @@ from local_messages.srv import MissionFinished, MissionFinishedRequest, MissionF
 
 # import all the msg and srv files
 
+##################
+# some constant values.
 
 # stop line type from map
 NO_STOP = 0 # default value
@@ -143,6 +145,8 @@ MEDIUM_SAFE_DISTANCE = 0.5
 PARALLEL_SLOT = 1
 VERTICAL_SLOT = 2
 
+#####################
+
 class MissionAhead:
     def __init__(self):
         self.missionType = None
@@ -151,6 +155,9 @@ class MissionAhead:
         self.missionLaneIds = []
         self.missionIndex = 0
         self.missionThingId = 0
+
+###################
+# some global variables
 
 mission_ahead = MissionAhead()
 global_pose_data = None
@@ -192,6 +199,9 @@ scenario_error_handle = REF_PATH_FOLLOW
 bb = 0
 
 class Pose:
+    """
+    用于泊车时记录虚拟位姿。
+    """
     def __init__(self):
         self.mapX = 0
         self.mapY = 0
@@ -201,7 +211,7 @@ class Pose:
 class CurrentLaneInfo:
     """
     update lane information, triggered when the global pose is updated.
-    记录关于当前车道的动态信息
+    记录关于当前车道的动态信息，当收到新的全局定位时更新。
     """
     def __init__(self):
         # id 为正数说明又车道
@@ -231,6 +241,9 @@ class CurrentLaneInfo:
 
 
 class DrivableLanes:
+    """
+    对每条车道做位置和障碍物的投影，得到用于后续处理的信息
+    """
     def __init__(self):
         self.id = 0
         self.front_drivable_length = 0
@@ -253,6 +266,9 @@ class DrivableLanes:
 
 
 class LanesOfInterest:
+    """
+    记录感兴趣的车道，用于路口会车场景
+    """
     def __init__(self):
         # self.points_x = []
         # self.points_y = []
@@ -266,6 +282,9 @@ class LanesOfInterest:
 
 
 class DecisionObstacle:
+    """
+    完成障碍物到车道的投影操作，定位到障碍物所处车道，预测障碍物的行为和轨迹
+    """
     def __init__(self, obstacle_msg, lane_list):
         self.id = obstacle_msg.id
         self.type = 0
@@ -407,6 +426,7 @@ class DecisionObstacle:
             self.history_heading.clear()
             # self.detected_time.append(obstacle_msg.detectedTime)
 
+        # 保留五个时刻的信息
         if len(self.detected_time) > 5:
             self.detected_time = self.detected_time[-5:]
             self.history_heading = self.history_heading[-5:]
@@ -440,7 +460,7 @@ class DecisionObstacle:
         this_lane_id = 0
         lane_found_flag = False
 
-        # for a moving object,
+        # 只选择距离作为衡量标准，因为障碍物行驶意图不确定
 
         # judge if there is a current lane. Yes, consider the current lane first, then the target lane. No, find the current lane.
         if last_lane_id != 0:
@@ -562,6 +582,7 @@ class DecisionObstacle:
 
     """
     # predict the future intention of the obstacle
+    # 预测模块，有待完善，目前用的是根据地图信息，选用几个特征判断目标车道，来预测意图
     def obstacle_intention_prediction(self, lane_list):
 
         if self.type == "VEHICLE" and "BICYCLE":
@@ -613,6 +634,7 @@ class DecisionObstacle:
             pass
 
     # predict the future intention of the obstacle
+    # 预测轨迹，可以使用贝塞尔多项式拟合
     def obstacle_trajectory_prediction(self, lane_list):
 
         if self.target_lane_id in lane_list.keys():
@@ -682,6 +704,9 @@ class ParkingSlot:
         self.lane_projection_s = 0
 
 
+"""
+定义一些输出的接口，方便后面调用
+"""
 # decision output message handler
 decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
 # re global planning service handler
@@ -691,6 +716,10 @@ re_global_planning = rospy.ServiceProxy('re_global_planning', ReGlobalPlanning)
 rospy.wait_for_service('current_mission_finished')
 current_mission_finished = rospy.ServiceProxy('current_mission_finished', MissionFinished)
 
+
+"""
+投影计算程序，jit 用于 cython 加速
+"""
 @jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
@@ -786,6 +815,7 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
             dir_flag = 0.0
         dir_diff_signed = dir_flag * dir_diff
 
+    # length before and after the projection point
     for j in range(0, index):
         before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
     for j in range(index + 1, map_num - 1):
@@ -796,11 +826,17 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
 
     if abs(projection_x - map_x[-1]) < EPS:
         index = map_num - 1
+    # index 归到 0 ~ map_num-1
 
     return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
 
 def road_callback(road_msg):
+    """
+    车道信息获取回调函数，存储在全局变量字典中
+    :param road_msg:
+    :return:
+    """
     global road_updated_flag
     if road_updated_flag and user_data_copied_flag:
         road_updated_flag = 0
@@ -814,6 +850,11 @@ def road_callback(road_msg):
 
 
 def global_pose_callback(global_pose_msg):
+    """
+    全局定位信息获取回调函数
+    :param global_pose_msg:
+    :return:
+    """
     global pose_updated_flag
     if pose_updated_flag and user_data_copied_flag:
         pose_updated_flag = 0
@@ -825,6 +866,11 @@ def global_pose_callback(global_pose_msg):
 
 
 def lights_callback(lights_msg):
+    """
+    交通信号信息获取回调函数
+    :param lights_msg:
+    :return:
+    """
     global lights_updated_flag
     if lights_updated_flag and user_data_copied_flag:
         lights_updated_flag = 0
@@ -856,6 +902,11 @@ def lights_callback(lights_msg):
 
 
 def signs_callback(signs_msg):
+    """
+    交通标志获取回调函数
+    :param signs_msg:
+    :return:
+    """
     global signs_updated_flag
     if signs_updated_flag and user_data_copied_flag:
         signs_updated_flag = 0
@@ -866,7 +917,11 @@ def signs_callback(signs_msg):
 
 
 def obstacles_callback(obstacles_msg):
-
+    """
+    障碍物信息获取回调函数，每次收到更新障碍物数据，如果不在之前的字典里，新建障碍物
+    :param obstacles_msg:
+    :return:
+    """
     global obstacle_updated_flag
     if obstacle_updated_flag and user_data_copied_flag:
         obstacle_updated_flag = 0
@@ -906,6 +961,11 @@ def obstacles_callback(obstacles_msg):
 
 
 def parking_slot_callback(things_msg):
+    """
+    停车位信息获取回调函数，来自感知的停车位
+    :param things_msg:
+    :return:
+    """
     global parking_slot_updated_flag
     if parking_slot_updated_flag and user_data_copied_flag:
         parking_slot_updated_flag = 0
@@ -934,6 +994,11 @@ def parking_slot_callback(things_msg):
 
 
 def map_things_callback(things_msg):
+    """
+    停车位信息获取回调函数，来自地图的停车位和停车场
+    :param things_msg:
+    :return:
+    """
     global map_things_updated_flag
     if map_things_updated_flag and user_data_copied_flag:
         map_things_updated_flag = 0
@@ -1006,6 +1071,11 @@ def listener():
 
 
 def planning_feedback_callback(plan_request):
+    """
+    接收来自规划的反馈，是一个ros service
+    :param plan_request:
+    :return:
+    """
     rospy.loginfo("5555555555555555555555555555555555")
     rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
     global planning_feedback
@@ -1017,48 +1087,53 @@ def server():
     rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
 
 
-def compute_mean(nums, start, end):
-    sum = 0
-    count = 0
-    stop = min(end + 1, len(nums))
-    # print(stop)
-    for i in range(start, stop, 1):
-        sum += nums[i]
-        count += 1
-    # print(count)
-    if count == 0:
-        mean = 0
-    else:
-        mean = sum / count
-    return mean
-
-
-def curve_fitting(points_x, points_y, points_num, order):
-    list_x = []
-    for xx in points_x:
-        list_line = []
-        for i in range(0, order + 1):
-            list_line.append(xx ** i)
-        list_x.append(list_line)
-    mat_x = np.reshape(list_x, (points_num, order + 1))
-
-    mat_y = np.reshape(points_y, (points_num, 1))
-
-    mat_w = np.zeros((points_num, points_num))
-    for i in range(points_num):
-        # mat_w[i, i] = 10000 - i * 9900 / order
-        # mat_w[i, i] = 1/mat_w[i,i]
-        # mat_w[i, i] = i + 1
-        mat_w[i, i] = 1
-
-    mat_m = np.dot(np.transpose(mat_x), mat_w)
-    fitting_result = np.dot(np.dot(np.linalg.inv(np.dot(mat_m, mat_x)), mat_m), mat_y)
-    # temp_result = np.linalg.inv(np.dot(np.transpose(mat_x), mat_x))
-    # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_x)), mat_y)
-    return fitting_result
+# def compute_mean(nums, start, end):
+#     sum = 0
+#     count = 0
+#     stop = min(end + 1, len(nums))
+#     # print(stop)
+#     for i in range(start, stop, 1):
+#         sum += nums[i]
+#         count += 1
+#     # print(count)
+#     if count == 0:
+#         mean = 0
+#     else:
+#         mean = sum / count
+#     return mean
+#
+#
+# def curve_fitting(points_x, points_y, points_num, order):
+#     list_x = []
+#     for xx in points_x:
+#         list_line = []
+#         for i in range(0, order + 1):
+#             list_line.append(xx ** i)
+#         list_x.append(list_line)
+#     mat_x = np.reshape(list_x, (points_num, order + 1))
+#
+#     mat_y = np.reshape(points_y, (points_num, 1))
+#
+#     mat_w = np.zeros((points_num, points_num))
+#     for i in range(points_num):
+#         # mat_w[i, i] = 10000 - i * 9900 / order
+#         # mat_w[i, i] = 1/mat_w[i,i]
+#         # mat_w[i, i] = i + 1
+#         mat_w[i, i] = 1
+#
+#     mat_m = np.dot(np.transpose(mat_x), mat_w)
+#     fitting_result = np.dot(np.dot(np.linalg.inv(np.dot(mat_m, mat_x)), mat_m), mat_y)
+#     # temp_result = np.linalg.inv(np.dot(np.transpose(mat_x), mat_x))
+#     # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_x)), mat_y)
+#     return fitting_result
 
 
 def user_data_updater(user_data):
+    """
+    用于从全局变量更新状态机中的用户数据，加了互斥锁。
+    :param user_data:
+    :return:
+    """
     global user_data_copied_flag
     if obstacle_updated_flag and road_updated_flag and lights_updated_flag and signs_updated_flag and pose_updated_flag and map_things_updated_flag and parking_slot_updated_flag:
         user_data_copied_flag = 0
@@ -1073,11 +1148,14 @@ def user_data_updater(user_data):
     # print('data updated.')
 
 
-def parking_slot_choose_decider():
-    pass
-
-
 def current_lane_selector(lane_list, pose_data):
+    """
+    先做当前位姿到所有车道的投影，存储投影信息。
+    选择当前车道
+    :param lane_list:
+    :param pose_data:
+    :return:
+    """
     # 投影信息用字典存储
     available_lanes = {}
     id_list, offset, dir_diff, before_length, after_length = [], [], [], [], []
@@ -1129,7 +1207,7 @@ def current_lane_selector(lane_list, pose_data):
     # 如果找不到，找距离最小的一条车道
     for i in range(len(id_list)):
         abs_offset = abs(offset[i])
-        # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
+        # 附近车道，距离最小，优先级高（2），不是车道末段
         if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
                 and project_index[i] < points_num_set[i] - 1:
@@ -1139,7 +1217,7 @@ def current_lane_selector(lane_list, pose_data):
     if count == 0:
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
-            # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
+            # 附近车道，距离最小，优先级为 1，不是车道末段
             if abs_offset < OFFSET_THRESHOLD \
                     and lane_list[id_list[i]].priority == 1 \
                     and project_index[i] < points_num_set[i] - 1:
@@ -1159,6 +1237,7 @@ def current_lane_selector(lane_list, pose_data):
         if min_offset_id != -1:
             priority_id_index_set.append([min_offset_id, min_offset_index])
 
+    # 多个车道符合条件，根据id 排序，保证选择车道的连续性
     if count != 0:
         # min_id = 10000
         # min_id_index = -1
@@ -1181,7 +1260,7 @@ def current_lane_selector(lane_list, pose_data):
             cur_lane_id = priority_id_index_set[0][0]
             cur_lane_index = priority_id_index_set[0][1]
 
-
+    # 记录当前车道的状态特征
     cur_lane_info = CurrentLaneInfo()
     if cur_lane_id != -1:
         cur_lane_info.cur_lane_id = cur_lane_id
@@ -1245,11 +1324,10 @@ def current_lane_selector(lane_list, pose_data):
 
 def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info, available_lanes):
     """
-    返回车道的可行驶距离。可行驶距离由距离最近的挡住车道正常行驶宽度的静态障碍物决定。
+    返回车道的可行驶距离和行驶效率。可行驶距离由距离最近的挡住车道正常行驶宽度的动静态障碍物决定，动态障碍物还需要根据障碍物速度去调整可行驶的距离（待实现）。
     对于对向车道,正向可行距离和反向可行距离都是需要的。
-    或许可以同时用当前车道的静态障碍物做能否左右变道的判断
-    这里粗略的选择了可行驶车道
-    考虑进动态障碍物和静态障碍物
+    同时用当前车道自车所处位置附近的静态障碍物做能否左右变道的判断，与地图的能否变道信息求与操作。
+
     :return: a set of available lanes
     """
     rospy.loginfo("available lane list %s " % list(available_lanes.keys()))
@@ -1491,6 +1569,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         lane_efficiency = []
         for i in range(len(selectable_lanes)):
             if selectable_lanes[i] > 0:
+                # 行驶效率和可行驶距离都进行归一化操作
                 efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
                             lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
                 lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
@@ -1615,7 +1694,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
             if next_lane_found == 0:
                 for index in lane_list[target_lane_id].leadToIds:
                     if lane_list[index].priority == 1 and available_lanes[
-                        index].front_drivable_length > temp_drivable_length:
+                            index].front_drivable_length > temp_drivable_length:
                         next_lane_id = index
                         temp_drivable_length = available_lanes[index].front_drivable_length
                         next_lane_found = 1
@@ -1633,6 +1712,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
 
 def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, target_lane_id, next_lane_id):
     """
+    对于汇入车道的场景(无地图上的车道，比如掉头，从路边插入车道)，选择会穿过的车道作为感兴趣车道
+    对于路口场景的（有地图车道信息），根据地图拓扑结构来选择感兴趣车道。
     :param lane_list:
     :param pose_data:
     :return:
@@ -1779,7 +1860,8 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
 
 def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_lanes):
     """
-    当已经开始执行 merge， 考虑在动态环境中的优先级，运动中的 merge，考虑超车
+    用于动态时通行优先级的处理，主要在变道中考虑
+    当已经开始执行 merge，考虑在动态环境中的优先级，运动中的 merge，考虑超车
     :param target_lane_id:
     :param obstacles_list:
     :return:
@@ -1800,19 +1882,6 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
             target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
 
     target_lane_obstacles_s_id.sort()
-    # # insert sort
-    # count = len(target_lane_obstacles_id)
-    # for i in range(1, count):
-    #     key = target_lane_obstacles_s[i]
-    #     id = target_lane_obstacles_id[i]
-    #     j = i - 1
-    #     while (j >= 0):
-    #         if target_lane_obstacles_s[j] > key:
-    #             target_lane_obstacles_s[j + 1] = target_lane_obstacles_s[j]
-    #             target_lane_obstacles_s[j] = key
-    #             target_lane_obstacles_id[j + 1] = target_lane_obstacles_id[j]
-    #             target_lane_obstacles_id[j] = id
-    #         j -= 1
 
     target_lane_obstacles_s_id.append([vehicle_s + OBSERVE_RANGE, -10])
     # 在最前方障碍物前面加上一个辅助动态障碍物
@@ -1846,7 +1915,7 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
             else:
                 front_obstacle = obstacles_list[target_lane_obstacles_s_id[i + 1][1]]
                 rear_obstacle = obstacles_list[target_lane_obstacles_s_id[i][1]]
-                if target_lane_obstacles_s_id[i+1][0] - target_lane_obstacles_s_id[i][0] > 2 * (
+                if target_lane_obstacles_s_id[i + 1][0] - target_lane_obstacles_s_id[i][0] > 2 * (
                         desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH) and \
                         1.2 * front_obstacle.s_velocity[-1] > rear_obstacle.s_velocity[-1]:
                     target_slot = i + 1
@@ -1885,6 +1954,15 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
 
 
 def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_lane_id = -1, target_lane_id = -1, next_target_lane_id = -1):
+    """
+    对选择出来的感兴趣障碍物，赋小决策值
+    :param obstacles_list:
+    :param available_lanes:
+    :param current_lane_id:
+    :param target_lane_id:
+    :param next_target_lane_id:
+    :return:
+    """
     if target_lane_id != -1:
         closest_regular_object_id = available_lanes[target_lane_id].closest_regular_object_id
         if closest_regular_object_id > 0:
@@ -1902,6 +1980,18 @@ def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_
 
 
 def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_lane_id, pose_data, action_decelerate=-1, merge_decelerate=-1, certain_speed_limit = -1):
+    """
+
+    :param lane_list:
+    :param available_lanes:
+    :param current_lane_info:
+    :param target_lane_id:
+    :param pose_data:
+    :param action_decelerate:
+    :param merge_decelerate:
+    :param certain_speed_limit:
+    :return:
+    """
     # speed_upper_limit_default = 30
     # speed_lower_limit_default = 0
     speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
@@ -1933,6 +2023,11 @@ def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_la
 
 
 def history_lanes_recorder(current_lane_id):
+    """
+    记录经过的历史车道信息，每次发生变化就在末尾添加新的车道
+    :param current_lane_id:
+    :return:
+    """
     global history_lane_ids
     if history_lane_ids == []:
         history_lane_ids.append(current_lane_id)
@@ -1943,6 +2038,14 @@ def history_lanes_recorder(current_lane_id):
 
 
 def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario = 'lane_follow'):
+    """
+    确定期望填充的期望轨迹的长度
+    :param available_lanes:
+    :param target_lane_id:
+    :param speed_upper_limit:
+    :param scenario:
+    :return:
+    """
     desired_length = 0
     if target_lane_id != -1:
         desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
@@ -1971,6 +2074,7 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
 
 def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, target_length):
     """
+    从目标车道上根据期望的行驶距离，选出一系列的期望轨迹点
     如果填充到最后没有达到目标长度，就终止填充
     :param lane_list:
     :param target_lane_id:
@@ -2076,6 +2180,17 @@ def desired_safety_distance(velocity):
 
 
 def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[], light_detection_switch = 0):
+    """
+    填充决策 msg，并发布
+    :param scenario:
+    :param filtered_obstacles:
+    :param speed_upper_limit:
+    :param speed_lower_limit:
+    :param reference_path:
+    :param selected_parking_lot:
+    :param light_detection_switch:
+    :return:
+    """
     message = Decision()
     if scenario_error_handle == NONE:
         message.scenario = int(scenario_error_handle)
@@ -2120,6 +2235,11 @@ def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_
 
 
 def re_global_planning_caller(blocked_id_list = []):
+    """
+    向全局规划发送重新全局规划的请求 service
+    :param blocked_id_list:
+    :return:
+    """
     try:
         rospy.loginfo("re-global planning because of lane %s blocked." % list(blocked_id_list))
         map_provider_respond = re_global_planning(blocked_id_list)
@@ -2131,6 +2251,10 @@ def re_global_planning_caller(blocked_id_list = []):
 
 
 def mission_finished_caller():
+    """
+    告诉全局规划，已经完成当前任务的 service
+    :return:
+    """
     try:
         global mission_ahead
         rospy.loginfo("mission index %d completed." % mission_ahead.missionIndex)
