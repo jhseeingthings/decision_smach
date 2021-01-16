@@ -4214,7 +4214,14 @@ def main():
             #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
             # smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
-            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'])
+            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'],
+                                                    input_keys=['lane_list', 'obstacles_list',
+                                                                'signs_data', 'lights_list', 'pose_data',
+                                                                'parking_slots_list'],
+                                                    output_keys=['lane_list', 'obstacles_list',
+                                                                 'signs_data',
+                                                                 'lights_list', 'pose_data', 'parking_slots_list']
+                                                    )
             with sm_emergency_brake:
                 smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'brakeOn': 'AWAIT'})
                 smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
