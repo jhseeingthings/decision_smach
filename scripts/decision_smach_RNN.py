@@ -8,7 +8,7 @@ import sys, time
 #     sys.path.remove(ros_path)
 # from numba import jit
 # sys.path.append(ros_path)
-from numba import jit
+from numba import jit, njit
 
 import rospy
 import smach
@@ -16,6 +16,13 @@ import smach_ros
 import copy
 import numpy as np
 import math
+import torch
+import torch.nn as nn
+
+import matlab
+import matlab.engine
+engine = matlab.engine.start_matlab()
+
 import threading
 from multiprocessing.pool import ThreadPool
 from local_messages.msg import FilteredObstacle
@@ -43,11 +50,9 @@ from local_messages.srv import MissionFinished, MissionFinishedRequest, MissionF
 
 # import all the msg and srv files
 
-##################
-# some constant values.
 
 # stop line type from map
-NO_STOP = 0 # default value
+NO_STOP = 0  # default value
 SLOW_GIVE_WAY = 1
 STOP_GIVE_WAY = 2
 OBSERVE_TRAFFIC_LIGHT = 3
@@ -60,7 +65,6 @@ STRAIGHT = 1
 LEFT = 2
 RIGHT = 3
 U_TURN = 4
-
 
 # The type of the light.
 ARROW_UP = 1
@@ -145,7 +149,66 @@ MEDIUM_SAFE_DISTANCE = 0.5
 PARALLEL_SLOT = 1
 VERTICAL_SLOT = 2
 
-#####################
+
+outputs_num = 8
+hidden_size = 10
+input_size = 9
+layers_num = 1
+time_step = 5
+
+
+class RNN(nn.Module):
+    def __init__(self):
+        super(RNN, self).__init__()
+
+        self.rnn = nn.RNN(
+            input_size=input_size,
+            hidden_size=hidden_size,     # rnn hidden unit
+            num_layers=layers_num,       # number of rnn layer
+            batch_first=True,   # input & output will has batch size as 1s dimension. e.g. (batch, time_step, input_size)
+        )
+        self.out = nn.Linear(hidden_size, outputs_num)
+
+    def forward(self, x):
+        # x (batch, time_step, input_size)
+        # h_state (n_layers, batch, hidden_size)
+        # r_out (batch, time_step, hidden_size)
+        r_out, h_state = self.rnn(x)
+
+        outs = []    # save all predictions
+        outs = self.out(r_out[:, time_step-1, :])
+        #for time_step in range(r_out.size(1)):    # calculate output for each time step
+        #    outs.append(self.out(r_out[:, time_step, :]))
+        return outs, h_state
+
+model_wb = np.load('../src/best_parameter.npy')
+
+myNet = RNN()
+
+
+def fillParameters(wb=None, net=None):
+    model_dict = net.state_dict()  # 取出自己网络的参数字典
+    #print(wb)
+    start_index = 0
+    for k, v in model_dict.items():
+        tensor_size = list(v.size())
+        if len(tensor_size) == 1:
+            this_length = tensor_size[0]
+            temp_param = wb[0][start_index: start_index + this_length]
+            temp_param.reshape(tensor_size[0])
+        else:
+            this_length = tensor_size[0] * tensor_size[1]
+            temp_param = wb[0][start_index: start_index + this_length]
+            temp_param = temp_param.reshape(tensor_size[0], tensor_size[1])
+        #print(this_length)
+        #print(type(temp_param))
+        #print(np.size(temp_param))
+        #print(temp_param)
+        temp_value = torch.from_numpy(temp_param)
+        model_dict[k] = temp_value
+        start_index = start_index + this_length
+    net.load_state_dict(model_dict)
+    return net
 
 class MissionAhead:
     def __init__(self):
@@ -156,8 +219,6 @@ class MissionAhead:
         self.missionIndex = 0
         self.missionThingId = 0
 
-###################
-# some global variables
 
 mission_ahead = MissionAhead()
 global_pose_data = None
@@ -168,6 +229,8 @@ lights_list = {}
 parking_slots_list = {}
 parking_area_list = {}
 planning_feedback = 0
+history_pose_data = []
+pose_data_interval = 0
 
 road_updated_flag = 1
 pose_updated_flag = 1
@@ -198,10 +261,8 @@ last_stop_x = -1
 scenario_error_handle = REF_PATH_FOLLOW
 bb = 0
 
+
 class Pose:
-    """
-    用于泊车时记录虚拟位姿。
-    """
     def __init__(self):
         self.mapX = 0
         self.mapY = 0
@@ -211,8 +272,9 @@ class Pose:
 class CurrentLaneInfo:
     """
     update lane information, triggered when the global pose is updated.
-    记录关于当前车道的动态信息，当收到新的全局定位时更新。
+    记录关于当前车道的动态信息
     """
+
     def __init__(self):
         # id 为正数说明又车道
         self.cur_lane_id = -1
@@ -241,9 +303,6 @@ class CurrentLaneInfo:
 
 
 class DrivableLanes:
-    """
-    对每条车道做位置和障碍物的投影，得到用于后续处理的信息
-    """
     def __init__(self):
         self.id = 0
         self.front_drivable_length = 0
@@ -266,9 +325,6 @@ class DrivableLanes:
 
 
 class LanesOfInterest:
-    """
-    记录感兴趣的车道，用于路口会车场景
-    """
     def __init__(self):
         # self.points_x = []
         # self.points_y = []
@@ -282,9 +338,6 @@ class LanesOfInterest:
 
 
 class DecisionObstacle:
-    """
-    完成障碍物到车道的投影操作，定位到障碍物所处车道，预测障碍物的行为和轨迹
-    """
     def __init__(self, obstacle_msg, lane_list):
         self.id = obstacle_msg.id
         self.type = 0
@@ -329,41 +382,41 @@ class DecisionObstacle:
         # The type of the obstacle.
         # The value could be VEHICLE, BICYCLE, PEDESTRIAN, CONE, WATERHORSE, RAIL, OTHER, etc.
         string type
-        
+
         # The size of the obstacle.
         # The length should be the distance in the direction of heading.
         # The width should be the distance perpendicular to the direction of heading.
         float32 length
         float32 width
-        
+
         # The position of the boundary points on the obstacle.
         # In the relative coordinate system, "x" points to the front, "y" points to the left, "z" points upwards.
         # "z" may be not useful at this moment, and can be simply set as 0.
         # In the absolute coordinate system, it should be consistent with the map.
         geometry_msgs/Point32[] points
-        
+
         # The estimated velocity of the obstacle.
         # Use the same coordinate system as for "points".
         geometry_msgs/Vector3 velocity
-        
+
         # The predicted trajectory of the obstacle
         geometry_msgs/Point32[] predictedCenterPointsTrajectory
-        
+
         # The predicted heading angle of the obstacle.
         float32[] predictedHeadings
-        
+
         # Is the obstacle static or dynamic?
         # True for a dynamic obstacle.
         # False for a static obstacle.
         bool isMoving
-        
+
         # The reaction towards the obstacle.
         int32 decision
         int32 NONE=0
         int32 OVERTAKE=1
         int32 GIVEWAY=2
         int32 BYPASS=3
-        
+
         # A safe distance to be kept from the obstacle.
         float32 safeDistance
         """
@@ -426,7 +479,6 @@ class DecisionObstacle:
             self.history_heading.clear()
             # self.detected_time.append(obstacle_msg.detectedTime)
 
-        # 保留五个时刻的信息
         if len(self.detected_time) > 5:
             self.detected_time = self.detected_time[-5:]
             self.history_heading = self.history_heading[-5:]
@@ -460,7 +512,7 @@ class DecisionObstacle:
         this_lane_id = 0
         lane_found_flag = False
 
-        # 只选择距离作为衡量标准，因为障碍物行驶意图不确定
+        # for a moving object,
 
         # judge if there is a current lane. Yes, consider the current lane first, then the target lane. No, find the current lane.
         if last_lane_id != 0:
@@ -568,7 +620,6 @@ class DecisionObstacle:
             self.s_velocity = []
             self.l_velocity = []
 
-
     def obstacle_behavior_initialization(self):
         if self.type == 'VEHICLE' or self.type == 'BICYCLE' or self.type == 'PEDESTRIAN':
             self.predicted_center_points = []
@@ -582,7 +633,6 @@ class DecisionObstacle:
 
     """
     # predict the future intention of the obstacle
-    # 预测模块，有待完善，目前用的是根据地图信息，选用几个特征判断目标车道，来预测意图
     def obstacle_intention_prediction(self, lane_list):
 
         if self.type == "VEHICLE" and "BICYCLE":
@@ -634,7 +684,6 @@ class DecisionObstacle:
             pass
 
     # predict the future intention of the obstacle
-    # 预测轨迹，可以使用贝塞尔多项式拟合
     def obstacle_trajectory_prediction(self, lane_list):
 
         if self.target_lane_id in lane_list.keys():
@@ -685,6 +734,7 @@ class DecisionObstacle:
             yya.append(yy)
     """
 
+
 class TrafficLight:
     def __init__(self):
         self.light_type = 0
@@ -694,19 +744,17 @@ class TrafficLight:
         self.position_x = 0
         self.position_y = 0
 
+
 class ParkingSlot:
     def __init__(self):
         self.points = []
-        self.origin = 0 # map_thing = 1, observe_thing = 2
-        self.slot_type = 0 # parallel_slot = 1, vertical_slot = 2
+        self.origin = 0  # map_thing = 1, observe_thing = 2
+        self.slot_type = 0  # parallel_slot = 1, vertical_slot = 2
         self.lane_id = 0
         self.lane_projection_point = []
         self.lane_projection_s = 0
 
 
-"""
-定义一些输出的接口，方便后面调用
-"""
 # decision output message handler
 decision_msg_pub = rospy.Publisher('decision_behavior', Decision, queue_size=1)
 # re global planning service handler
@@ -717,9 +765,6 @@ rospy.wait_for_service('current_mission_finished')
 current_mission_finished = rospy.ServiceProxy('current_mission_finished', MissionFinished)
 
 
-"""
-投影计算程序，jit 用于 cython 加速
-"""
 @jit
 def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
     """
@@ -815,7 +860,6 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
             dir_flag = 0.0
         dir_diff_signed = dir_flag * dir_diff
 
-    # length before and after the projection point
     for j in range(0, index):
         before_length += math.sqrt(math.pow(map_x[j + 1] - map_x[j], 2) + math.pow(map_y[j + 1] - map_y[j], 2))
     for j in range(index + 1, map_num - 1):
@@ -826,17 +870,11 @@ def lane_projection(map_x, map_y, map_num, cur_x, cur_y, cur_yaw=0.0, type=0):
 
     if abs(projection_x - map_x[-1]) < EPS:
         index = map_num - 1
-    # index 归到 0 ~ map_num-1
 
     return projection_x, projection_y, index, lateral_distance, dir_diff_signed, before_length, after_length
 
 
 def road_callback(road_msg):
-    """
-    车道信息获取回调函数，存储在全局变量字典中
-    :param road_msg:
-    :return:
-    """
     global road_updated_flag
     if road_updated_flag and user_data_copied_flag:
         road_updated_flag = 0
@@ -846,31 +884,30 @@ def road_callback(road_msg):
         for k in range(len(road_data.lanes)):
             lane_list[road_data.lanes[k].id] = road_data.lanes[k]
         road_updated_flag = 1
-            # rospy.loginfo('map_data_updated')
+        # rospy.loginfo('map_data_updated')
 
 
 def global_pose_callback(global_pose_msg):
-    """
-    全局定位信息获取回调函数
-    :param global_pose_msg:
-    :return:
-    """
     global pose_updated_flag
     if pose_updated_flag and user_data_copied_flag:
         pose_updated_flag = 0
-        global global_pose_data
+        global global_pose_data, history_pose_data, pose_data_interval
         global_pose_data = global_pose_msg
         global_pose_data.mVf = abs(global_pose_data.mVf)
+
+        if pose_data_interval < 9:
+            pose_data_interval += 1
+        else:
+            history_pose_data.append(global_pose_data)
+            pose_data_interval = 0
+        if len(history_pose_data) > 5:
+            history_pose_data = history_pose_data[-5:]
+
         pose_updated_flag = 1
         # rospy.loginfo('pose_data_updated')
 
 
 def lights_callback(lights_msg):
-    """
-    交通信号信息获取回调函数
-    :param lights_msg:
-    :return:
-    """
     global lights_updated_flag
     if lights_updated_flag and user_data_copied_flag:
         lights_updated_flag = 0
@@ -902,11 +939,6 @@ def lights_callback(lights_msg):
 
 
 def signs_callback(signs_msg):
-    """
-    交通标志获取回调函数
-    :param signs_msg:
-    :return:
-    """
     global signs_updated_flag
     if signs_updated_flag and user_data_copied_flag:
         signs_updated_flag = 0
@@ -917,11 +949,6 @@ def signs_callback(signs_msg):
 
 
 def obstacles_callback(obstacles_msg):
-    """
-    障碍物信息获取回调函数，每次收到更新障碍物数据，如果不在之前的字典里，新建障碍物
-    :param obstacles_msg:
-    :return:
-    """
     global obstacle_updated_flag
     if obstacle_updated_flag and user_data_copied_flag:
         obstacle_updated_flag = 0
@@ -937,7 +964,8 @@ def obstacles_callback(obstacles_msg):
         for i in range(len(obstacles_msg.obstacles)):
             # update old obstacles
             if obstacles_msg.obstacles[i].id in obstacles_list.keys():
-                obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i], temp_lane_info)
+                obstacles_list[obstacles_msg.obstacles[i].id].obstacle_update(obstacles_msg.obstacles[i],
+                                                                              temp_lane_info)
             # generate new obstacle
             else:
                 temp_obstacle = DecisionObstacle(obstacles_msg.obstacles[i], temp_lane_info)
@@ -961,11 +989,6 @@ def obstacles_callback(obstacles_msg):
 
 
 def parking_slot_callback(things_msg):
-    """
-    停车位信息获取回调函数，来自感知的停车位
-    :param things_msg:
-    :return:
-    """
     global parking_slot_updated_flag
     if parking_slot_updated_flag and user_data_copied_flag:
         parking_slot_updated_flag = 0
@@ -980,8 +1003,10 @@ def parking_slot_callback(things_msg):
                 temp_parking_slot.points = k.points
                 temp_parking_slot.lane_id = k.laneId
                 temp_parking_slot.lane_projection_point = k.laneProjectedPoint
-                first_edge_distance = math.sqrt(math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
-                second_edge_distance = math.sqrt(math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
+                first_edge_distance = math.sqrt(
+                    math.pow(k.points[0].x - k.points[1].x, 2) + math.pow(k.points[0].y - k.points[1].y, 2))
+                second_edge_distance = math.sqrt(
+                    math.pow(k.points[2].x - k.points[1].x, 2) + math.pow(k.points[2].y - k.points[1].y, 2))
                 if first_edge_distance < second_edge_distance:
                     temp_parking_slot.slot_type = PARALLEL_SLOT
                 else:
@@ -989,16 +1014,11 @@ def parking_slot_callback(things_msg):
                 parking_slots_list[k.id] = temp_parking_slot
             # if k.type == "parkingArea":
             #     parking_area_list[k.id] = k.points
-#        print(parking_slots_list.keys())
+        #        print(parking_slots_list.keys())
         parking_slot_updated_flag = 1
 
 
 def map_things_callback(things_msg):
-    """
-    停车位信息获取回调函数，来自地图的停车位和停车场
-    :param things_msg:
-    :return:
-    """
     global map_things_updated_flag
     if map_things_updated_flag and user_data_copied_flag:
         map_things_updated_flag = 0
@@ -1061,9 +1081,8 @@ def listener():
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
-#    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
+    #    rospy.Subscriber("parking_slot", Things, parking_slot_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_thing", Things, map_things_callback, queue_size=1, buff_size=5000000)
-
 
     # spin() simply keeps python from exiting until this node is stopped
     # rospy.spin()
@@ -1071,11 +1090,6 @@ def listener():
 
 
 def planning_feedback_callback(plan_request):
-    """
-    接收来自规划的反馈，是一个ros service
-    :param plan_request:
-    :return:
-    """
     rospy.loginfo("5555555555555555555555555555555555")
     rospy.loginfo("planning feedback: %d" % plan_request.planningFeedback)
     global planning_feedback
@@ -1087,53 +1101,48 @@ def server():
     rospy.Service('planning_feedback', PlanningFeedback, planning_feedback_callback)
 
 
-# def compute_mean(nums, start, end):
-#     sum = 0
-#     count = 0
-#     stop = min(end + 1, len(nums))
-#     # print(stop)
-#     for i in range(start, stop, 1):
-#         sum += nums[i]
-#         count += 1
-#     # print(count)
-#     if count == 0:
-#         mean = 0
-#     else:
-#         mean = sum / count
-#     return mean
-#
-#
-# def curve_fitting(points_x, points_y, points_num, order):
-#     list_x = []
-#     for xx in points_x:
-#         list_line = []
-#         for i in range(0, order + 1):
-#             list_line.append(xx ** i)
-#         list_x.append(list_line)
-#     mat_x = np.reshape(list_x, (points_num, order + 1))
-#
-#     mat_y = np.reshape(points_y, (points_num, 1))
-#
-#     mat_w = np.zeros((points_num, points_num))
-#     for i in range(points_num):
-#         # mat_w[i, i] = 10000 - i * 9900 / order
-#         # mat_w[i, i] = 1/mat_w[i,i]
-#         # mat_w[i, i] = i + 1
-#         mat_w[i, i] = 1
-#
-#     mat_m = np.dot(np.transpose(mat_x), mat_w)
-#     fitting_result = np.dot(np.dot(np.linalg.inv(np.dot(mat_m, mat_x)), mat_m), mat_y)
-#     # temp_result = np.linalg.inv(np.dot(np.transpose(mat_x), mat_x))
-#     # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_x)), mat_y)
-#     return fitting_result
+def compute_mean(nums, start, end):
+    sum = 0
+    count = 0
+    stop = min(end + 1, len(nums))
+    # print(stop)
+    for i in range(start, stop, 1):
+        sum += nums[i]
+        count += 1
+    # print(count)
+    if count == 0:
+        mean = 0
+    else:
+        mean = sum / count
+    return mean
+
+
+def curve_fitting(points_x, points_y, points_num, order):
+    list_x = []
+    for xx in points_x:
+        list_line = []
+        for i in range(0, order + 1):
+            list_line.append(xx ** i)
+        list_x.append(list_line)
+    mat_x = np.reshape(list_x, (points_num, order + 1))
+
+    mat_y = np.reshape(points_y, (points_num, 1))
+
+    mat_w = np.zeros((points_num, points_num))
+    for i in range(points_num):
+        # mat_w[i, i] = 10000 - i * 9900 / order
+        # mat_w[i, i] = 1/mat_w[i,i]
+        # mat_w[i, i] = i + 1
+        mat_w[i, i] = 1
+
+    mat_m = np.dot(np.transpose(mat_x), mat_w)
+    fitting_result = np.dot(np.dot(np.linalg.inv(np.dot(mat_m, mat_x)), mat_m), mat_y)
+    # temp_result = np.linalg.inv(np.dot(np.transpose(mat_x), mat_x))
+    # fitting_result = np.dot(np.dot(temp_result, np.transpose(mat_x)), mat_y)
+    return fitting_result
 
 
 def user_data_updater(user_data):
-    """
-    用于从全局变量更新状态机中的用户数据，加了互斥锁。
-    :param user_data:
-    :return:
-    """
     global user_data_copied_flag
     if obstacle_updated_flag and road_updated_flag and lights_updated_flag and signs_updated_flag and pose_updated_flag and map_things_updated_flag and parking_slot_updated_flag:
         user_data_copied_flag = 0
@@ -1144,18 +1153,16 @@ def user_data_updater(user_data):
         user_data.signs_data = copy.deepcopy(signs_data)
         user_data.lights_list = copy.deepcopy(lights_list)
         user_data.parking_slots_list = copy.deepcopy(parking_slots_list)
+        user_data.history_pose_data = copy.deepcopy(history_pose_data)
         user_data_copied_flag = 1
     # print('data updated.')
 
 
+def parking_slot_choose_decider():
+    pass
+
+
 def current_lane_selector(lane_list, pose_data):
-    """
-    先做当前位姿到所有车道的投影，存储投影信息。
-    选择当前车道
-    :param lane_list:
-    :param pose_data:
-    :return:
-    """
     # 投影信息用字典存储
     available_lanes = {}
     id_list, offset, dir_diff, before_length, after_length = [], [], [], [], []
@@ -1207,7 +1214,7 @@ def current_lane_selector(lane_list, pose_data):
     # 如果找不到，找距离最小的一条车道
     for i in range(len(id_list)):
         abs_offset = abs(offset[i])
-        # 附近车道，距离最小，优先级高（2），不是车道末段
+        # 附近车道，距离最小，方向偏差小，优先级高（2），不是车道末段
         if abs_offset < OFFSET_THRESHOLD \
                 and lane_list[id_list[i]].priority == 2 \
                 and project_index[i] < points_num_set[i] - 1:
@@ -1217,7 +1224,7 @@ def current_lane_selector(lane_list, pose_data):
     if count == 0:
         for i in range(len(id_list)):
             abs_offset = abs(offset[i])
-            # 附近车道，距离最小，优先级为 1，不是车道末段
+            # 附近车道，距离最小，方向偏差小，优先级为 1，不是车道末段
             if abs_offset < OFFSET_THRESHOLD \
                     and lane_list[id_list[i]].priority == 1 \
                     and project_index[i] < points_num_set[i] - 1:
@@ -1237,7 +1244,6 @@ def current_lane_selector(lane_list, pose_data):
         if min_offset_id != -1:
             priority_id_index_set.append([min_offset_id, min_offset_index])
 
-    # 多个车道符合条件，根据id 排序，保证选择车道的连续性
     if count != 0:
         # min_id = 10000
         # min_id_index = -1
@@ -1245,7 +1251,8 @@ def current_lane_selector(lane_list, pose_data):
 
         if history_lane_ids != []:
             for i in range(count):
-                if history_lane_ids[-1] == priority_id_index_set[i][0] and abs(dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
+                if history_lane_ids[-1] == priority_id_index_set[i][0] and abs(
+                        dir_diff[priority_id_index_set[i][1]]) < DIR_THRESHOLD:
                     cur_lane_id = priority_id_index_set[i][0]
                     cur_lane_index = priority_id_index_set[i][1]
 
@@ -1260,7 +1267,6 @@ def current_lane_selector(lane_list, pose_data):
             cur_lane_id = priority_id_index_set[0][0]
             cur_lane_index = priority_id_index_set[0][1]
 
-    # 记录当前车道的状态特征
     cur_lane_info = CurrentLaneInfo()
     if cur_lane_id != -1:
         cur_lane_info.cur_lane_id = cur_lane_id
@@ -1324,10 +1330,11 @@ def current_lane_selector(lane_list, pose_data):
 
 def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info, available_lanes):
     """
-    返回车道的可行驶距离和行驶效率。可行驶距离由距离最近的挡住车道正常行驶宽度的动静态障碍物决定，动态障碍物还需要根据障碍物速度去调整可行驶的距离（待实现）。
+    返回车道的可行驶距离。可行驶距离由距离最近的挡住车道正常行驶宽度的静态障碍物决定。
     对于对向车道,正向可行距离和反向可行距离都是需要的。
-    同时用当前车道自车所处位置附近的静态障碍物做能否左右变道的判断，与地图的能否变道信息求与操作。
-
+    或许可以同时用当前车道的静态障碍物做能否左右变道的判断
+    这里粗略的选择了可行驶车道
+    考虑进动态障碍物和静态障碍物
     :return: a set of available lanes
     """
     rospy.loginfo("available lane list %s " % list(available_lanes.keys()))
@@ -1414,9 +1421,11 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
             if lane_index == cur_lane_info.cur_lane_id:
                 if not (longitudinal_max < vehicle_s or longitudinal_min > (vehicle_s + 0.5 * LANE_CHANGE_BASE_LENGTH)):
-                    if not (lateral_max < (-0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
+                    if not (lateral_max < (
+                            -0.5 * LANE_WIDTH_BASE - VEHICLE_WIDTH) or lateral_min > -0.5 * LANE_WIDTH_BASE):
                         temp_can_change_left = 0
-                    if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
+                    if not (lateral_max < 0.5 * LANE_WIDTH_BASE or lateral_min > (
+                            0.5 * LANE_WIDTH_BASE + VEHICLE_WIDTH)):
                         temp_can_change_right = 0
 
             # if temp_obstacle.is_moving:
@@ -1458,7 +1467,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
 
         # if min(available_lanes[lane_index].after_length, OBSERVE_RANGE) - front_drivable_length > EPS :
         #     lane_efficiency = 0
-            # 如果有静态障碍物限制可行驶距离，车道效率置0
+        # 如果有静态障碍物限制可行驶距离，车道效率置0
         lane_efficiency = min(temp_efficiency, lane_efficiency)
 
         temp_drivable_lane = available_lanes[lane_index]
@@ -1482,7 +1491,7 @@ def available_lanes_selector(lane_list, pose_data, obstacles_list, cur_lane_info
     return available_lanes, cur_lane_info
 
 
-def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, available_lanes):
+def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, available_lanes, obstacles_list = None, history_pose_data = None):
     """
     根据场景选择当前目标车道，
     如果小于期望预瞄距离，则进行下一条车道的拼接
@@ -1505,7 +1514,35 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
 
     # 当前处于正常行驶状态，为了提升行驶效率，而选择目标车道
     elif scenario == "lane_follow":
+        """
+        RNN method
+        input:1*5*10
+        10[0] = v_s, 10[1] = game_v-s_v, 10[2] = game_s-s_s, 10[3] = f_s-s_s, 10[4] = game_f_v - s_v
+        10[5] = game_f_s - s_s, 10[6] = game_f_v - f_v, 10[7] = game_f_s-f_s, 10[8] = game_f_v-game_v, 10[10] = lane_priority
+        """
+
+        if cur_lane_info.dist_to_next_road >= 100:
+            # 主动变道
+            # 先判断当前车道的行驶效率
+            if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
+                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+                    available_lanes[selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                target_lane_id = cur_lane_info.cur_lane_id
+            else:
+
+
+
+        elif 20 < cur_lane_info.dist_to_next_road < 100:
+            # 条件有待确定
+            target_lane_id = cur_lane_info.cur_lane_id
+            # if lane_priority[0] == 2:
+        else:
+            target_lane_id = cur_lane_info.cur_lane_id
+
+
+
         selectable_lanes = [cur_lane_info.cur_lane_id, cur_lane_info.left_lane_id, cur_lane_info.right_lane_id]
+        rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
         if cur_lane_info.left_lane_id not in available_lanes.keys():
             selectable_lanes[1] = 0
         if cur_lane_info.right_lane_id not in available_lanes.keys():
@@ -1543,129 +1580,500 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         elif right_found_2:
             right_priority = 2
 
-        temp_priority_list = []
-        # 与剩余路径长短成反比的优先级系数
-        if cur_lane_info.dist_to_next_road <= 100:
-            lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
-        else:
-            if cur_lane_info.cur_priority == 2:
-                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-            else:
-                temp_priority_list.append(cur_lane_info.cur_priority)
-            if left_priority == 2:
-                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-            else:
-                temp_priority_list.append(left_priority)
-            if right_priority == 2:
-                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-            else:
-                temp_priority_list.append(left_priority)
-            lane_priority += temp_priority_list
+        game_vehicle_left, game_vehicle_right = -1, -1
+        game_front_vehicle_left, game_front_vehicle_right = -1, -1
+        front_vehicle = -1
 
+        vehicle_s = available_lanes[cur_lane_info.cur_lane_id].before_length
 
-        lane_drivable_length = []
-        lane_drivable_length_ratio = []
-        lane_efficiency_ratio = []
-        lane_efficiency = []
         for i in range(len(selectable_lanes)):
-            if selectable_lanes[i] > 0:
-                # 行驶效率和可行驶距离都进行归一化操作
-                efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
-                            lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
-                lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
-                lane_efficiency_ratio.append(efficiency)
-                if available_lanes[selectable_lanes[i]].after_length < EPS:
-                    free_space = 0
-                else:
-                    free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
-                    selectable_lanes[i]].after_length, OBSERVE_RANGE)
-                lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
-                lane_drivable_length_ratio.append(free_space)
+            print("lane id %d" % selectable_lanes[i])
+            target_lane_obstacles_s_id = []
+            for obstacle_index in obstacles_list.keys():
+                obstacle_info = obstacles_list[obstacle_index]
+                if obstacle_info.type == 'VEHICLE' or obstacle_info.type == 'BICYCLE' or obstacle_info.type == 'PEDESTRIAN':
+                    if obstacle_info.cur_lane_id == selectable_lanes[i] and selectable_lanes[i]:
+                        target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
+            target_lane_obstacles_s_id.sort()
+            before_vehicle_id = []
+            after_vehicle_id = []
+            if i == 0:
+                for j in range(len(target_lane_obstacles_s_id)):
+                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                    else:
+                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                if after_vehicle_id:
+                    front_vehicle = after_vehicle_id[0]
+            elif i == 1:
+                for j in range(len(target_lane_obstacles_s_id)):
+                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                    else:
+                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                if after_vehicle_id:
+                    game_front_vehicle_left = after_vehicle_id[0]
+                if before_vehicle_id:
+                    game_vehicle_left = before_vehicle_id[-1]
+            elif i == 2:
+                for j in range(len(target_lane_obstacles_s_id)):
+                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                    else:
+                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                if after_vehicle_id:
+                    game_front_vehicle_right = after_vehicle_id[0]
+                if before_vehicle_id:
+                    game_vehicle_right = before_vehicle_id[-1]
 
-                lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
-            else:
-                lane_reward.append(0)
-                lane_efficiency_ratio.append(0)
-                lane_drivable_length_ratio.append(0)
-                lane_efficiency.append(0)
-                lane_drivable_length.append(0)
-        rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
-        rospy.loginfo("lane_priority %s" % list(lane_priority))
-        rospy.loginfo("can_change_constraint %s" % list(can_change_constraint))
-        rospy.loginfo("lane_reward %s" % list(lane_reward))
-        rospy.loginfo("lane_efficiency %s" % list(lane_efficiency))
-        rospy.loginfo("lane_efficiency_ratio %s" % list(lane_efficiency_ratio))
-        rospy.loginfo("lane_drivable_length %s" % list(lane_drivable_length))
-        rospy.loginfo("lane_drivable_length_ratio %s" % list(lane_drivable_length_ratio))
+        print("front vehicle %d " % front_vehicle)
+        print("game left vehicle %d " % game_vehicle_left)
+        print("game right vehicle %d " % game_vehicle_right)
+        print("game front left vehicle %d " % game_front_vehicle_left)
+        print("game front right vehicle %d " % game_front_vehicle_right)
 
-        rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
+        rnn_input_left, rnn_input_right = np.zeros((time_step, input_size)), np.zeros((time_step, input_size))
 
-        # 先判断是否需要强制性变道到优先级高的车道
-        if 20 < cur_lane_info.dist_to_next_road < 100:
-            # 条件有待确定
-            if lane_priority[0] == 2:
-                if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
+        vehicle_s, vehicle_v = [], []
+
+        temp_lane = lane_list[cur_lane_info.cur_lane_id]
+        points_x, points_y = [], []
+        for j in range(len(temp_lane.points)):
+            points_x.append(temp_lane.points[j].x)
+            points_y.append(temp_lane.points[j].y)
+        points_num = len(points_x)
+        points_x = np.array(points_x)
+        points_y = np.array(points_y)
+
+        is_ready = True
+
+        # calculate self vehicle's state
+        for history_pose in history_pose_data:
+            result = lane_projection(points_x, points_y, points_num,
+                                     history_pose.mapX, history_pose.mapY, history_pose.mapHeading)
+            vehicle_v.append(math.cos(result[4]) * history_pose.mVf)
+            vehicle_s.append(result[5])
+        vehicle_s = np.array(vehicle_s)
+        vehicle_v = np.array(vehicle_v)
+        if len(vehicle_v) < 5:
+            is_ready = False
+
+        # fill in right parameters
+        if game_vehicle_left != -1:
+            game_vehicle_left_s = np.array(obstacles_list[game_vehicle_left].s_record)
+            game_vehicle_left_v = np.array(obstacles_list[game_vehicle_left].s_velocity)
+            if len(game_vehicle_left_s) < 5:
+                is_ready = False
+        if game_vehicle_right != -1:
+            game_vehicle_right_s = np.array(obstacles_list[game_vehicle_right].s_record)
+            game_vehicle_right_v = np.array(obstacles_list[game_vehicle_right].s_velocity)
+            if len(game_vehicle_right_s) < 5:
+                is_ready = False
+        if game_front_vehicle_left != -1:
+            game_front_vehicle_left_s = np.array(obstacles_list[game_front_vehicle_left].s_record)
+            game_front_vehicle_left_v = np.array(obstacles_list[game_front_vehicle_left].s_velocity)
+            if len(game_front_vehicle_left_s) < 5:
+                is_ready = False
+        if game_front_vehicle_right != -1:
+            game_front_vehicle_right_s = np.array(obstacles_list[game_front_vehicle_right].s_record)
+            game_front_vehicle_right_v = np.array(obstacles_list[game_front_vehicle_right].s_velocity)
+            if len(game_front_vehicle_right_s) < 5:
+                is_ready = False
+        if front_vehicle != -1:
+            front_vehicle_s = np.array(obstacles_list[front_vehicle].s_record)
+            front_vehicle_v = np.array(obstacles_list[front_vehicle].s_velocity)
+            if len(front_vehicle_s) < 5:
+                is_ready = False
+
+        if is_ready:
+            if game_vehicle_left != -1:
+                for time_index in range(time_step):
+
+                    rnn_input_left[time_index, 0] = vehicle_s[time_index - 5]
+                    rnn_input_left[time_index, 1] = game_vehicle_left_v[time_index - 5] - vehicle_v[time_index - 5]
+                    rnn_input_left[time_index, 2] = game_vehicle_left_s[time_index - 5] - vehicle_s[time_index - 5]
+                    if front_vehicle != -1:
+                        rnn_input_left[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[time_index - 5]
+                    else:
+                        rnn_input_left[time_index, 3] = OBSERVE_RANGE
+                    if game_front_vehicle_left != -1:
+                        rnn_input_left[time_index, 4] = game_front_vehicle_left_v[time_index - 5] - vehicle_v[time_index - 5]
+                        rnn_input_left[time_index, 5] = game_front_vehicle_left_s[time_index - 5] - vehicle_s[time_index - 5]
+                    else:
+                        rnn_input_left[time_index, 4] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - vehicle_v[time_index - 5]
+                        rnn_input_left[time_index, 5] = OBSERVE_RANGE
+                    if game_front_vehicle_left != -1 and front_vehicle != -1:
+                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - front_vehicle_v[time_index - 5]
+                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - front_vehicle_s[time_index - 5]
+                    elif game_front_vehicle_left != -1:
+                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - (vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                    elif front_vehicle != -1:
+                        rnn_input_left[time_index, 6] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - front_vehicle_v[
+                            time_index - 5]
+                        rnn_input_left[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - front_vehicle_s[
+                            time_index - 5]
+                    else:
+                        rnn_input_left[time_index, 6] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                        rnn_input_left[time_index, 7] = 0
+                    if game_front_vehicle_left != -1:
+                        rnn_input_left[time_index, 8] = game_front_vehicle_left_v[time_index - 5] - game_vehicle_left_v[time_index - 5]
+                    else:
+                        rnn_input_left[time_index, 8] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - game_vehicle_left_v[time_index - 5]
+                # rnn_input_left[time_index, 9] = left_priority
+
+            if game_vehicle_right != -1:
+                for time_index in range(time_step):
+                    rnn_input_right[time_index, 0] = vehicle_s[time_index - 5]
+                    rnn_input_right[time_index, 1] = game_vehicle_right_v[time_index - 5] - vehicle_v[time_index - 5]
+                    rnn_input_right[time_index, 2] = game_vehicle_right_s[time_index - 5] - vehicle_s[time_index - 5]
+                    if front_vehicle != -1:
+                        rnn_input_right[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[time_index - 5]
+                    else:
+                        rnn_input_right[time_index, 3] = OBSERVE_RANGE
+                    if game_front_vehicle_right != -1:
+                        rnn_input_right[time_index, 4] = game_front_vehicle_right_v[time_index - 5] - vehicle_v[
+                            time_index - 5]
+                        rnn_input_right[time_index, 5] = game_front_vehicle_right_s[time_index - 5] - vehicle_s[
+                            time_index - 5]
+                    else:
+                        rnn_input_right[time_index, 4] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                         vehicle_v[time_index - 5]
+                        rnn_input_right[time_index, 5] = OBSERVE_RANGE
+                    if game_front_vehicle_right != -1 and front_vehicle != -1:
+                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - front_vehicle_v[
+                            time_index - 5]
+                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - front_vehicle_s[
+                            time_index - 5]
+                    elif game_front_vehicle_right != -1:
+                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - lane_list[
+                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - (
+                                    vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                    elif front_vehicle != -1:
+                        rnn_input_right[time_index, 6] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                         front_vehicle_v[
+                                                             time_index - 5]
+                        rnn_input_right[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - front_vehicle_s[
+                            time_index - 5]
+                    else:
+                        rnn_input_right[time_index, 6] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                         lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                        rnn_input_right[time_index, 7] = 0
+                    if game_front_vehicle_right != -1:
+                        rnn_input_right[time_index, 8] = game_front_vehicle_right_v[time_index - 5] - game_vehicle_right_v[
+                            time_index - 5]
+                    else:
+                        rnn_input_right[time_index, 8] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                         game_vehicle_right_v[time_index - 5]
+
+            rnn_input_left = np.array([rnn_input_left])
+            rnn_input_tensor_left = torch.from_numpy(rnn_input_left).float()
+
+            rnn_input_right = np.array([rnn_input_right])
+            rnn_input_tensor_right = torch.from_numpy(rnn_input_right).float()
+
+            evaluation_result_left, evaluation_result_right = -1, -1
+
+            if game_vehicle_left != -1:
+                tmp_output, h_state = myNet(rnn_input_tensor_left)
+                tmp_output = tmp_output.T
+                tmp_output = tmp_output.detach().numpy()
+                tmp_output = tmp_output.tolist()
+                # print(tmp_output)
+                # print(np.size(tmp_output))
+                tmp_output = matlab.double(tmp_output)
+                evaluation_result_left = engine.rnn_game_result(tmp_output)
+            if game_vehicle_right != -1:
+                tmp_output, h_state = myNet(rnn_input_tensor_right)
+                tmp_output = tmp_output.T
+                tmp_output = tmp_output.detach().numpy()
+                tmp_output = tmp_output.tolist()
+                # print(tmp_output)
+                # print(np.size(tmp_output))
+                tmp_output = matlab.double(tmp_output)
+                evaluation_result_right = engine.rnn_game_result(tmp_output)
+            # 1-yeild  2-pass  3-lane change
+
+            print(evaluation_result_left, evaluation_result_right)
+
+            if cur_lane_info.dist_to_next_road >= 100:
+                # 主动变道
+                # 先判断当前车道的行驶效率
+                if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
                         lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
-                        available_lanes[selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                        available_lanes[
+                            selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                    # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
                     target_lane_id = cur_lane_info.cur_lane_id
                 else:
-                    if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
-                        if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
-                            target_lane_id = cur_lane_info.right_lane_id
-                        elif lane_reward[2] <= lane_reward[1] * 1.2+ EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
-                            target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[1] > lane_reward[0] * 2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
-                        target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[2] > lane_reward[0] * 2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
-                        target_lane_id = cur_lane_info.right_lane_id
-                    else:
+                    print("i need to change lane")
+                    # 有变道需求
+                    if evaluation_result_left == 1 and evaluation_result_right == 1:
+                        print("111")
                         target_lane_id = cur_lane_info.cur_lane_id
-            else:
-                max_lane_reward = max(lane_reward)
-                if max_lane_reward - 0 > EPS:
-                    if lane_reward[1] == max(lane_reward):
-                        target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_reward[2] == max(lane_reward):
+                        speed_upper_limit = min(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                        # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 1 and evaluation_result_right == 2:
+                        print("222")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 1 and evaluation_result_right == 3:
+                        print("333")
                         target_lane_id = cur_lane_info.right_lane_id
-                else:
-                    target_lane_id = cur_lane_info.cur_lane_id
-        elif cur_lane_info.dist_to_next_road <= 20:
-            target_lane_id = cur_lane_info.cur_lane_id
-
-        elif cur_lane_info.dist_to_next_road >= 100:
-            # 先判断当前车道的行驶效率
-            if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
-                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
-                    available_lanes[selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
-                # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
+                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 2 and evaluation_result_right == 1:
+                        print("444")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 2 and evaluation_result_right == 2:
+                        print("555")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 2 and evaluation_result_right == 3:
+                        print("666")
+                        target_lane_id = cur_lane_info.right_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 3 and evaluation_result_right == 1:
+                        print("777")
+                        target_lane_id = cur_lane_info.left_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 3 and evaluation_result_right == 2:
+                        print("888")
+                        target_lane_id = cur_lane_info.left_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 3 and evaluation_result_right == 3:
+                        print("999")
+                        target_lane_id = cur_lane_info.left_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == -1 and evaluation_result_right == -1:
+                        print("10")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                    elif evaluation_result_left == -1 and evaluation_result_right == 1:
+                        print("1111")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_upper_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == -1 and evaluation_result_right == 2:
+                        print("1212")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == -1 and evaluation_result_right == 3:
+                        print("1313")
+                        target_lane_id = cur_lane_info.right_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 1 and evaluation_result_right == -1:
+                        print("1414")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_upper_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 2 and evaluation_result_right == -1:
+                        print("1515")
+                        target_lane_id = cur_lane_info.cur_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                    elif evaluation_result_left == 3 and evaluation_result_right == -1:
+                        print("1616")
+                        target_lane_id = cur_lane_info.left_lane_id
+                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                    if left_priority == 0 and target_lane_id == cur_lane_info.left_lane_id:
+                        target_lane_id = cur_lane_info.cur_lane_id
+                    if right_priority == 0 and target_lane_id == cur_lane_info.right_lane_id:
+                        target_lane_id = cur_lane_info.cur_lane_id
+            # 先判断是否需要强制性变道到优先级高的车道
+            elif 20 < cur_lane_info.dist_to_next_road < 100:
+                # 条件有待确定
                 target_lane_id = cur_lane_info.cur_lane_id
+                # if lane_priority[0] == 2:
             else:
-                if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
-                    if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
-                        target_lane_id = cur_lane_info.right_lane_id
-                    elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
-                        target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
-                    target_lane_id = cur_lane_info.left_lane_id
-                elif lane_reward[2] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
-                    target_lane_id = cur_lane_info.right_lane_id
-
-                if target_lane_id == -1:
-                    if lane_drivable_length[1] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[1] - lane_reward[0] > EPS:
-                        target_lane_id = cur_lane_info.left_lane_id
-                    elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[2] - lane_reward[0] > EPS:
-                        target_lane_id = cur_lane_info.right_lane_id
-                    else:
-                        target_lane_id = cur_lane_info.cur_lane_id
-        if target_lane_id <= 0:
-            target_lane_id = cur_lane_info.cur_lane_id
-        if target_lane_id == cur_lane_info.left_lane_id and can_change_constraint[1] <= 0:
-            target_lane_id = cur_lane_info.cur_lane_id
-        if target_lane_id == cur_lane_info.right_lane_id and can_change_constraint[2] <= 0:
+                target_lane_id = cur_lane_info.cur_lane_id
+        else:
             target_lane_id = cur_lane_info.cur_lane_id
 
-    # elif scenario == "intersection":
-    #     target_lane_id = cur_lane_info.cur_lane_id
+
+
+    #
+    #     temp_priority_list = []
+    #     # 与剩余路径长短成反比的优先级系数
+    #     if cur_lane_info.dist_to_next_road <= 100:
+    #         lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
+    #     else:
+    #         if cur_lane_info.cur_priority == 2:
+    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+    #         else:
+    #             temp_priority_list.append(cur_lane_info.cur_priority)
+    #         if left_priority == 2:
+    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+    #         else:
+    #             temp_priority_list.append(left_priority)
+    #         if right_priority == 2:
+    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+    #         else:
+    #             temp_priority_list.append(left_priority)
+    #         lane_priority += temp_priority_list
+    #
+    #     lane_drivable_length = []
+    #     lane_drivable_length_ratio = []
+    #     lane_efficiency_ratio = []
+    #     lane_efficiency = []
+    #     for i in range(len(selectable_lanes)):
+    #         if selectable_lanes[i] > 0:
+    #             efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
+    #                     lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
+    #             lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
+    #             lane_efficiency_ratio.append(efficiency)
+    #             if available_lanes[selectable_lanes[i]].after_length < EPS:
+    #                 free_space = 0
+    #             else:
+    #                 free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
+    #                                                                                                   selectable_lanes[
+    #                                                                                                       i]].after_length,
+    #                                                                                               OBSERVE_RANGE)
+    #             lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
+    #             lane_drivable_length_ratio.append(free_space)
+    #
+    #             lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
+    #         else:
+    #             lane_reward.append(0)
+    #             lane_efficiency_ratio.append(0)
+    #             lane_drivable_length_ratio.append(0)
+    #             lane_efficiency.append(0)
+    #             lane_drivable_length.append(0)
+    #     rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
+    #     rospy.loginfo("lane_priority %s" % list(lane_priority))
+    #     rospy.loginfo("can_change_constraint %s" % list(can_change_constraint))
+    #     rospy.loginfo("lane_reward %s" % list(lane_reward))
+    #     rospy.loginfo("lane_efficiency %s" % list(lane_efficiency))
+    #     rospy.loginfo("lane_efficiency_ratio %s" % list(lane_efficiency_ratio))
+    #     rospy.loginfo("lane_drivable_length %s" % list(lane_drivable_length))
+    #     rospy.loginfo("lane_drivable_length_ratio %s" % list(lane_drivable_length_ratio))
+    #
+    #     rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
+    #
+    #     # 先判断是否需要强制性变道到优先级高的车道
+    #     if 20 < cur_lane_info.dist_to_next_road < 100:
+    #         # 条件有待确定
+    #         if lane_priority[0] == 2:
+    #             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
+    #                     lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+    #                     available_lanes[
+    #                         selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+    #                 target_lane_id = cur_lane_info.cur_lane_id
+    #             else:
+    #                 if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
+    #                     if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+    #                         2] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                         target_lane_id = cur_lane_info.right_lane_id
+    #                     elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+    #                         1] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                         target_lane_id = cur_lane_info.left_lane_id
+    #                 elif lane_reward[1] > lane_reward[0] * 2 + EPS and lane_drivable_length[
+    #                     1] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                     target_lane_id = cur_lane_info.left_lane_id
+    #                 elif lane_reward[2] > lane_reward[0] * 2 + EPS and lane_drivable_length[
+    #                     2] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                     target_lane_id = cur_lane_info.right_lane_id
+    #                 else:
+    #                     target_lane_id = cur_lane_info.cur_lane_id
+    #         else:
+    #             max_lane_reward = max(lane_reward)
+    #             if max_lane_reward - 0 > EPS:
+    #                 if lane_reward[1] == max(lane_reward):
+    #                     target_lane_id = cur_lane_info.left_lane_id
+    #                 elif lane_reward[2] == max(lane_reward):
+    #                     target_lane_id = cur_lane_info.right_lane_id
+    #             else:
+    #                 target_lane_id = cur_lane_info.cur_lane_id
+    #     elif cur_lane_info.dist_to_next_road <= 20:
+    #         target_lane_id = cur_lane_info.cur_lane_id
+    #
+    #     elif cur_lane_info.dist_to_next_road >= 100:
+    #         # 先判断当前车道的行驶效率
+    #         if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
+    #                 lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+    #                 available_lanes[
+    #                     selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+    #             # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
+    #             target_lane_id = cur_lane_info.cur_lane_id
+    #         else:
+    #             if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
+    #                 if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+    #                     2] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                     target_lane_id = cur_lane_info.right_lane_id
+    #                 elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+    #                     1] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                     target_lane_id = cur_lane_info.left_lane_id
+    #             elif lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[
+    #                 1] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                 target_lane_id = cur_lane_info.left_lane_id
+    #             elif lane_reward[2] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[
+    #                 2] > EPS + LANE_CHANGE_BASE_LENGTH:
+    #                 target_lane_id = cur_lane_info.right_lane_id
+    #
+    #             if target_lane_id == -1:
+    #                 if lane_drivable_length[1] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and \
+    #                         lane_reward[1] - lane_reward[0] > EPS:
+    #                     target_lane_id = cur_lane_info.left_lane_id
+    #                 elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and \
+    #                         lane_reward[2] - lane_reward[0] > EPS:
+    #                     target_lane_id = cur_lane_info.right_lane_id
+    #                 else:
+    #                     target_lane_id = cur_lane_info.cur_lane_id
+    #     if target_lane_id <= 0:
+    #         target_lane_id = cur_lane_info.cur_lane_id
+    #     if target_lane_id == cur_lane_info.left_lane_id and can_change_constraint[1] <= 0:
+    #         target_lane_id = cur_lane_info.cur_lane_id
+    #     if target_lane_id == cur_lane_info.right_lane_id and can_change_constraint[2] <= 0:
+    #         target_lane_id = cur_lane_info.cur_lane_id
+    #
+    # # elif scenario == "intersection":
+    # #     target_lane_id = cur_lane_info.cur_lane_id
 
     else:
         target_lane_id = cur_lane_info.cur_lane_id
@@ -1687,14 +2095,15 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
             next_lane_found = 0
             temp_priority_max = 0
             for index in lane_list[target_lane_id].leadToIds:
-                if lane_list[index].priority == 2 and available_lanes[index].front_drivable_length > temp_drivable_length:
+                if lane_list[index].priority == 2 and available_lanes[
+                    index].front_drivable_length > temp_drivable_length:
                     next_lane_id = index
                     temp_drivable_length = available_lanes[index].front_drivable_length
                     next_lane_found = 1
             if next_lane_found == 0:
                 for index in lane_list[target_lane_id].leadToIds:
                     if lane_list[index].priority == 1 and available_lanes[
-                            index].front_drivable_length > temp_drivable_length:
+                        index].front_drivable_length > temp_drivable_length:
                         next_lane_id = index
                         temp_drivable_length = available_lanes[index].front_drivable_length
                         next_lane_found = 1
@@ -1712,8 +2121,6 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
 
 def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, target_lane_id, next_lane_id):
     """
-    对于汇入车道的场景(无地图上的车道，比如掉头，从路边插入车道)，选择会穿过的车道作为感兴趣车道
-    对于路口场景的（有地图车道信息），根据地图拓扑结构来选择感兴趣车道。
     :param lane_list:
     :param pose_data:
     :return:
@@ -1811,8 +2218,8 @@ def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, 
                         lane_of_interest.end_s = available_lanes[index].before_length + available_lanes[
                             index].after_length
                         time_required = TIME_ACC + TIME_DELAY + TIME_SPACE + (
-                                    available_lanes[target_lane_id].after_length + available_lanes[
-                                next_lane_id].after_length) / max(pose_data.mVf, 5 / 3.6)
+                                available_lanes[target_lane_id].after_length + available_lanes[
+                            next_lane_id].after_length) / max(pose_data.mVf, 5 / 3.6)
                         lane_of_interest.action_time = time_required
                         longitudinal_distance = (lane_list[index].speedUpperLimit / 3.6) * time_required
                         if lane_of_interest.end_s < longitudinal_distance:
@@ -1860,8 +2267,7 @@ def initial_priority_decider(lanes_of_interest, obstacles_list):
 
 def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_lanes):
     """
-    用于动态时通行优先级的处理，主要在变道中考虑
-    当已经开始执行 merge，考虑在动态环境中的优先级，运动中的 merge，考虑超车
+    当已经开始执行 merge， 考虑在动态环境中的优先级，运动中的 merge，考虑超车
     :param target_lane_id:
     :param obstacles_list:
     :return:
@@ -1882,6 +2288,19 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
             target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
 
     target_lane_obstacles_s_id.sort()
+    # # insert sort
+    # count = len(target_lane_obstacles_id)
+    # for i in range(1, count):
+    #     key = target_lane_obstacles_s[i]
+    #     id = target_lane_obstacles_id[i]
+    #     j = i - 1
+    #     while (j >= 0):
+    #         if target_lane_obstacles_s[j] > key:
+    #             target_lane_obstacles_s[j + 1] = target_lane_obstacles_s[j]
+    #             target_lane_obstacles_s[j] = key
+    #             target_lane_obstacles_id[j + 1] = target_lane_obstacles_id[j]
+    #             target_lane_obstacles_id[j] = id
+    #         j -= 1
 
     target_lane_obstacles_s_id.append([vehicle_s + OBSERVE_RANGE, -10])
     # 在最前方障碍物前面加上一个辅助动态障碍物
@@ -1905,7 +2324,7 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
             # slot[i,i+1]
             if i == len(target_lane_obstacles_s_id) - 2:
                 rear_obstacle = obstacles_list[target_lane_obstacles_s_id[i][1]]
-                if target_lane_obstacles_s_id[i+1][0] - target_lane_obstacles_s_id[i][0] > 2 * (
+                if target_lane_obstacles_s_id[i + 1][0] - target_lane_obstacles_s_id[i][0] > 2 * (
                         desired_safety_distance(rear_obstacle.s_velocity[-1]) + VEHICLE_LENGTH):
                     target_slot = i + 1
                     break
@@ -1953,45 +2372,32 @@ def merge_priority_decider(target_lane_id, obstacles_list, pose_data, available_
     return is_ready, speed_upper_limit
 
 
-def obstacle_of_interest_selector(obstacles_list, available_lanes = {}, current_lane_id = -1, target_lane_id = -1, next_target_lane_id = -1):
+def obstacle_of_interest_selector(obstacles_list, available_lanes={}, current_lane_id=-1, target_lane_id=-1,
+                                  next_target_lane_id=-1):
     """
-    对选择出来的感兴趣障碍物，赋小决策值
-    :param obstacles_list:
-    :param available_lanes:
-    :param current_lane_id:
-    :param target_lane_id:
-    :param next_target_lane_id:
-    :return:
+    处理跟车场景
     """
     if target_lane_id != -1:
         closest_regular_object_id = available_lanes[target_lane_id].closest_regular_object_id
-        if closest_regular_object_id > 0:
-            rospy.loginfo("give way to obstacle id %d on lane %d distance %f" % (closest_regular_object_id, target_lane_id, (obstacles_list[closest_regular_object_id].s_record[-1] - available_lanes[target_lane_id].before_length)))
-            obstacles_list[closest_regular_object_id].sub_decision = GIVE_WAY
-            obstacles_list[closest_regular_object_id].safe_distance = MIN_GAP_DISTANCE
-    if next_target_lane_id != -1:
-        closest_regular_object_id = available_lanes[next_target_lane_id].closest_regular_object_id
         if closest_regular_object_id > 0:
             rospy.loginfo("give way to obstacle id %d on lane %d distance %f" % (
             closest_regular_object_id, target_lane_id,
             (obstacles_list[closest_regular_object_id].s_record[-1] - available_lanes[target_lane_id].before_length)))
             obstacles_list[closest_regular_object_id].sub_decision = GIVE_WAY
             obstacles_list[closest_regular_object_id].safe_distance = MIN_GAP_DISTANCE
+    if next_target_lane_id != -1:
+        closest_regular_object_id = available_lanes[next_target_lane_id].closest_regular_object_id
+        if closest_regular_object_id > 0:
+            rospy.loginfo("give way to obstacle id %d on lane %d distance %f" % (
+                closest_regular_object_id, target_lane_id,
+                (obstacles_list[closest_regular_object_id].s_record[-1] - available_lanes[
+                    target_lane_id].before_length)))
+            obstacles_list[closest_regular_object_id].sub_decision = GIVE_WAY
+            obstacles_list[closest_regular_object_id].safe_distance = MIN_GAP_DISTANCE
 
 
-def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_lane_id, pose_data, action_decelerate=-1, merge_decelerate=-1, certain_speed_limit = -1):
-    """
-
-    :param lane_list:
-    :param available_lanes:
-    :param current_lane_info:
-    :param target_lane_id:
-    :param pose_data:
-    :param action_decelerate:
-    :param merge_decelerate:
-    :param certain_speed_limit:
-    :return:
-    """
+def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_lane_id, pose_data, action_decelerate=-1,
+                        merge_decelerate=-1, certain_speed_limit=-1):
     # speed_upper_limit_default = 30
     # speed_lower_limit_default = 0
     speed_upper_limit = SPEED_UPPER_LIMIT_DEFAULT
@@ -1999,7 +2405,8 @@ def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_la
     if current_lane_info.cur_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[current_lane_info.cur_lane_id].speedUpperLimit / 3.6))
         speed_lower_limit = max(speed_lower_limit, (lane_list[current_lane_info.cur_lane_id].speedLowerLimit / 3.6))
-        if available_lanes[current_lane_info.cur_lane_id].front_drivable_length < pose_data.mVf ** 2 / (2 * COMFORT_DEC):
+        if available_lanes[current_lane_info.cur_lane_id].front_drivable_length < pose_data.mVf ** 2 / (
+                2 * COMFORT_DEC):
             speed_upper_limit = min(speed_upper_limit, 1.5)
     if target_lane_id > 0:
         speed_upper_limit = min(speed_upper_limit, (lane_list[target_lane_id].speedUpperLimit / 3.6))
@@ -2023,11 +2430,6 @@ def speed_limit_decider(lane_list, available_lanes, current_lane_info, target_la
 
 
 def history_lanes_recorder(current_lane_id):
-    """
-    记录经过的历史车道信息，每次发生变化就在末尾添加新的车道
-    :param current_lane_id:
-    :return:
-    """
     global history_lane_ids
     if history_lane_ids == []:
         history_lane_ids.append(current_lane_id)
@@ -2037,29 +2439,21 @@ def history_lanes_recorder(current_lane_id):
     rospy.loginfo("the lanes that has passed through %s " % list(history_lane_ids))
 
 
-def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario = 'lane_follow'):
-    """
-    确定期望填充的期望轨迹的长度
-    :param available_lanes:
-    :param target_lane_id:
-    :param speed_upper_limit:
-    :param scenario:
-    :return:
-    """
+def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario='lane_follow'):
     desired_length = 0
     if target_lane_id != -1:
         desired_length = max(2 * LANE_CHANGE_BASE_LENGTH, speed_upper_limit * 3)
         # if there is a static obstacle in the way
-#        if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
-#             target_lane_id].front_drivable_length > EPS:
-#             # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
-#             #     target_lane_id].closest_moving_object_type != 'VEHICLE':
-#             # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
-#            if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
-#                pass
-#            else:
-#                 desired_length = min(desired_length,
-#                                      available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
+        #        if min(available_lanes[target_lane_id].after_length, OBSERVE_RANGE) - available_lanes[
+        #             target_lane_id].front_drivable_length > EPS:
+        #             # if (current_lane_info.can_change_left or current_lane_info.can_change_right) and available_lanes[
+        #             #     target_lane_id].closest_moving_object_type != 'VEHICLE':
+        #             # it the static obstacle ahead is a vehicle, then stop behind the obstacle. otherwise, try to reach as far as possible.
+        #            if available_lanes[target_lane_id].closest_static_object_type != 'VEHICLE':
+        #                pass
+        #            else:
+        #                 desired_length = min(desired_length,
+        #                                      available_lanes[target_lane_id].front_drivable_length - MIN_GAP_DISTANCE)
 
         # if the target lane is beyond search, stop providing reference path.
         if scenario == 'lane_follow':
@@ -2074,7 +2468,6 @@ def desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, s
 
 def points_filler(lane_list, target_lane_id, next_lane_id, available_lanes, target_length):
     """
-    从目标车道上根据期望的行驶距离，选出一系列的期望轨迹点
     如果填充到最后没有达到目标长度，就终止填充
     :param lane_list:
     :param target_lane_id:
@@ -2179,18 +2572,8 @@ def desired_safety_distance(velocity):
     return max(1, velocity * 3.6 / 10) * MIN_GAP_DISTANCE
 
 
-def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[], selected_parking_lot=[], light_detection_switch = 0):
-    """
-    填充决策 msg，并发布
-    :param scenario:
-    :param filtered_obstacles:
-    :param speed_upper_limit:
-    :param speed_lower_limit:
-    :param reference_path:
-    :param selected_parking_lot:
-    :param light_detection_switch:
-    :return:
-    """
+def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_lower_limit=0, reference_path=[],
+                  selected_parking_lot=[], light_detection_switch=0):
     message = Decision()
     if scenario_error_handle == NONE:
         message.scenario = int(scenario_error_handle)
@@ -2234,12 +2617,7 @@ def output_filler(scenario=0, filtered_obstacles={}, speed_upper_limit=0, speed_
     decision_msg_pub.publish(message)
 
 
-def re_global_planning_caller(blocked_id_list = []):
-    """
-    向全局规划发送重新全局规划的请求 service
-    :param blocked_id_list:
-    :return:
-    """
+def re_global_planning_caller(blocked_id_list=[]):
     try:
         rospy.loginfo("re-global planning because of lane %s blocked." % list(blocked_id_list))
         map_provider_respond = re_global_planning(blocked_id_list)
@@ -2251,10 +2629,6 @@ def re_global_planning_caller(blocked_id_list = []):
 
 
 def mission_finished_caller():
-    """
-    告诉全局规划，已经完成当前任务的 service
-    :return:
-    """
     try:
         global mission_ahead
         rospy.loginfo("mission index %d completed." % mission_ahead.missionIndex)
@@ -2289,9 +2663,9 @@ class StartupCheck(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['ready'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list'])
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'])
 
     def execute(self, user_data):
         # clear the global variables
@@ -2337,9 +2711,9 @@ class Startup(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['in_lane_driving', 'merge_and_across', 'park'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2352,7 +2726,8 @@ class Startup(smach.State):
             if current_lane_info.cur_lane_id != -1:
                 history_lanes_recorder(current_lane_info.cur_lane_id)
 
-            rospy.loginfo("mission type: %s on lane: %s " % (mission_ahead.missionType, list(mission_ahead.missionLaneIds)))
+            rospy.loginfo(
+                "mission type: %s on lane: %s " % (mission_ahead.missionType, list(mission_ahead.missionLaneIds)))
             # 执行到当前mission的最后一段
             if current_lane_info.cur_lane_id != -1:
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
@@ -2400,11 +2775,12 @@ class Startup(smach.State):
 class InLaneDriving(smach.State):
     def __init__(self):
         smach.State.__init__(self,
-                             outcomes=['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error', 'finished', 'stop_line'],
+                             outcomes=['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error',
+                                       'finished', 'stop_line'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2425,14 +2801,14 @@ class InLaneDriving(smach.State):
             if scenario_error_handle != REF_PATH_FOLLOW:
                 output_filler(scenario=NONE)
                 return 'finished'
-#            if planning_feedback == RE_CHOOSE_PATH:
-#                planning_feedback = 0
-#                rospy.loginfo("No way to go!!!")
-#                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
-#                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
-#                re_global_planning_caller(blocked_lane_id_list)
-#                output_filler(scenario=NONE)
-#                return 'finished'
+            #            if planning_feedback == RE_CHOOSE_PATH:
+            #                planning_feedback = 0
+            #                rospy.loginfo("No way to go!!!")
+            #                blocked_lane_id_list.append(current_lane_info.cur_lane_id)
+            #                rospy.loginfo("blocked way ids %s " % list(blocked_lane_id_list))
+            #                re_global_planning_caller(blocked_lane_id_list)
+            #                output_filler(scenario=NONE)
+            #                return 'finished'
 
             current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
 
@@ -2443,13 +2819,16 @@ class InLaneDriving(smach.State):
                 # 的找不到当前车道或者当前车道优先级小，进入merge
                 return 'merge_and_across'
 
-            if current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT and current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
+            if current_lane_info.next_stop_type == OBSERVE_TRAFFIC_LIGHT and current_lane_info.dist_to_next_stop < max(
+                    user_data.pose_data.mVf ** 2 / 2 / COMFORT_DEC, 30):
                 return 'intersection'
 
-            if current_lane_info.next_stop_type == STOP_GIVE_WAY and current_lane_info.dist_to_next_stop < max(user_data.pose_data.mVf**2 / 2 / COMFORT_DEC, 30):
+            if current_lane_info.next_stop_type == STOP_GIVE_WAY and current_lane_info.dist_to_next_stop < max(
+                    user_data.pose_data.mVf ** 2 / 2 / COMFORT_DEC, 30):
                 return 'stop_line'
 
-            rospy.loginfo("mission type: %s on lane: %s " % (mission_ahead.missionType, list(mission_ahead.missionLaneIds)))
+            rospy.loginfo(
+                "mission type: %s on lane: %s " % (mission_ahead.missionType, list(mission_ahead.missionLaneIds)))
             # 执行到当前mission的最后一段
             if current_lane_info.cur_lane_id != -1:
                 if history_lane_ids[-1] in mission_ahead.missionLaneIds:
@@ -2492,7 +2871,7 @@ class InLaneDriving(smach.State):
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
-                                                                current_lane_info, available_lanes)
+                                                                current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
             this_target_lane_id_ugv = target_lane_id
 
@@ -2511,14 +2890,16 @@ class InLaneDriving(smach.State):
             # 避免找到身后的目标路径
             if desired_length > 0:
                 reference_path = points_filler(user_data.lane_list, target_lane_id, next_lane_id, available_lanes,
-                                                   desired_length)
+                                               desired_length)
             else:
                 reference_path = []
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id, next_lane_id)
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                          target_lane_id, next_lane_id)
 
             # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
 
             last_chosen_lane_id_ugv = target_lane_id
 
@@ -2543,9 +2924,9 @@ class LaneChangePreparing(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['cancel_intention', 'ready_to_change_lane'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2573,7 +2954,7 @@ class LaneChangePreparing(smach.State):
 
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
-                                                                current_lane_info, available_lanes)
+                                                                current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
             this_target_lane_id_ugv = target_lane_id
             if last_chosen_lane_id_ugv == this_target_lane_id_ugv:
@@ -2589,7 +2970,9 @@ class LaneChangePreparing(smach.State):
                 lane_change_consideration_start_time = 0
                 return 'cancel_intention'
 
-            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id_ugv, user_data.obstacles_list, user_data.pose_data, available_lanes)
+            is_ready, speed_upper_limit_merge = merge_priority_decider(this_target_lane_id_ugv,
+                                                                       user_data.obstacles_list, user_data.pose_data,
+                                                                       available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -2605,9 +2988,11 @@ class LaneChangePreparing(smach.State):
             else:
                 reference_path = []
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, target_lane_id, next_lane_id)
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                          target_lane_id, next_lane_id)
 
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
 
             if is_ready and (rospy.get_time() - lane_change_consideration_start_time) > TIME_LANE_CHANGE_CONSIDERATION:
                 lane_change_calm_down_start_time = rospy.get_time()
@@ -2624,12 +3009,13 @@ class LaneChanging(smach.State):
     """
 
     """
+
     def __init__(self):
         smach.State.__init__(self, outcomes=['lane_change_completed', 'lane_change_cancelled'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2655,7 +3041,7 @@ class LaneChanging(smach.State):
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
-                                                                current_lane_info, available_lanes)
+                                                                current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
             last_chosen_lane_id_ugv = target_lane_id
 
@@ -2665,9 +3051,9 @@ class LaneChanging(smach.State):
             if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
                 return 'lane_change_completed'
 
-
             rospy.loginfo("final target lane id %d" % target_lane_id)
-            is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv, user_data.obstacles_list,
+            is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv,
+                                                                       user_data.obstacles_list,
                                                                        user_data.pose_data, available_lanes)
             if not is_ready:
                 'lane_change_cancelled'
@@ -2684,14 +3070,100 @@ class LaneChanging(smach.State):
 
             # 避免找到身后的目标路径
             if desired_length > 0:
-                reference_path = points_filler(user_data.lane_list, last_target_lane_id_ugv, next_lane_id, available_lanes,
+                reference_path = points_filler(user_data.lane_list, last_target_lane_id_ugv, next_lane_id,
+                                               available_lanes,
                                                desired_length)
             else:
                 reference_path = []
 
-            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id, last_target_lane_id_ugv, next_lane_id)
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                          last_target_lane_id_ugv, next_lane_id)
 
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
+            end_time = rospy.get_time()
+            rospy.sleep(DECISION_PERIOD + start_time - end_time)
+            rospy.loginfo("end time %f" % rospy.get_time())
+
+            # if the vehicle on the surrounding lanes is about to cut into this lane. decelerate.
+
+
+class LaneChangingGameTheory(smach.State):
+    """
+
+    """
+
+    def __init__(self):
+        smach.State.__init__(self, outcomes=['lane_change_completed', 'lane_change_cancelled'],
+                             input_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
+                             output_keys=['lane_list', 'obstacles_list', 'signs_data',
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
+                             )
+
+    def execute(self, user_data):
+        while not rospy.is_shutdown():
+            rospy.loginfo("currently in LaneChanging")
+
+            global lane_change_calm_down_start_time, last_chosen_lane_id_ugv
+            start_time = rospy.get_time()
+            rospy.loginfo("start time %f" % start_time)
+            user_data_updater(user_data)
+
+            current_lane_info, available_lanes = current_lane_selector(user_data.lane_list, user_data.pose_data)
+
+            if current_lane_info.cur_lane_id != -1:
+                history_lanes_recorder(current_lane_info.cur_lane_id)
+
+            if current_lane_info.cur_lane_id == -1 or current_lane_info.cur_priority <= 0:
+                # 的找不到当前车道或者当前车道优先级小，进入merge
+                return 'lane_change_cancelled'
+
+            available_lanes, current_lane_info = available_lanes_selector(user_data.lane_list, user_data.pose_data,
+                                                                          user_data.obstacles_list, current_lane_info,
+                                                                          available_lanes)
+            # compare the reward value among the surrounding lanes.
+            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+                                                                current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
+
+            last_chosen_lane_id_ugv = target_lane_id
+
+            # if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
+            #         return 'lane_change_cancelled'
+
+            if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
+                return 'lane_change_completed'
+
+            rospy.loginfo("final target lane id %d" % target_lane_id)
+            is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv,
+                                                                       user_data.obstacles_list,
+                                                                       user_data.pose_data, available_lanes)
+            if not is_ready:
+                'lane_change_cancelled'
+
+            if (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_DEADLINE:
+                return 'lane_change_cancelled'
+
+            speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
+                                                                       current_lane_info,
+                                                                       last_target_lane_id_ugv, user_data.pose_data,
+                                                                       certain_speed_limit=speed_upper_limit_merge)
+
+            desired_length = desired_length_decider(available_lanes, last_target_lane_id_ugv, speed_upper_limit)
+
+            # 避免找到身后的目标路径
+            if desired_length > 0:
+                reference_path = points_filler(user_data.lane_list, last_target_lane_id_ugv, next_lane_id,
+                                               available_lanes,
+                                               desired_length)
+            else:
+                reference_path = []
+
+            obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
+                                          last_target_lane_id_ugv, next_lane_id)
+
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
             rospy.loginfo("end time %f" % rospy.get_time())
@@ -2710,9 +3182,9 @@ class FindRecoverySolution(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['need_to_change_lane', 'back_to_normal'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2733,9 +3205,9 @@ class LaneChangePreparingErrorRecovery(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['cancel_intention', 'ready_to_change_lane'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2752,9 +3224,9 @@ class LaneChangingErrorRecovery(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['lane_change_completed', 'lane_change_cancelled'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2770,9 +3242,9 @@ class ApproachIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['with_lights', 'without_lights', 'exit_intersection'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2800,7 +3272,6 @@ class ApproachIntersection(smach.State):
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -2836,9 +3307,9 @@ class CreepToIntersectionWithLights(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['enter'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2866,7 +3337,6 @@ class CreepToIntersectionWithLights(smach.State):
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
-
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
                                                                        target_lane_id, user_data.pose_data,
@@ -2874,7 +3344,8 @@ class CreepToIntersectionWithLights(smach.State):
 
             desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit)
 
-            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection', available_lanes, target_lane_id, next_lane_id)
+            lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'intersection',
+                                                           available_lanes, target_lane_id, next_lane_id)
 
             is_ready = initial_priority_decider(lanes_of_interest, user_data.obstacles_list)
 
@@ -2899,7 +3370,7 @@ class CreepToIntersectionWithLights(smach.State):
                                               target_lane_id, next_lane_id)
 
                 output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
-                              reference_path, light_detection_switch = 1)
+                              reference_path, light_detection_switch=1)
             else:
                 speed_upper_limit = 0
 
@@ -2907,8 +3378,7 @@ class CreepToIntersectionWithLights(smach.State):
                                               target_lane_id, next_lane_id)
 
                 output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
-                              reference_path=[], light_detection_switch = 1)
-
+                              reference_path=[], light_detection_switch=1)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -2919,9 +3389,9 @@ class CreepToIntersectionWithoutLights(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['enter'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -2948,7 +3418,6 @@ class CreepToIntersectionWithoutLights(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -2993,9 +3462,9 @@ class EnterIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['pass'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3022,7 +3491,6 @@ class EnterIntersection(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -3067,9 +3535,9 @@ class PassIntersection(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3085,9 +3553,9 @@ class ApproachStopLine(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['near_stop', 'exit_stop'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3120,7 +3588,6 @@ class ApproachStopLine(smach.State):
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -3156,9 +3623,9 @@ class CreepToStopLine(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['stopped'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3182,7 +3649,6 @@ class CreepToStopLine(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -3231,9 +3697,9 @@ class PassStopLine(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['pass'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3265,7 +3731,6 @@ class PassStopLine(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
-
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
@@ -3322,9 +3787,9 @@ class CreepForOpportunity(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['ready', 'back_to_normal', 'no_mission'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3351,7 +3816,6 @@ class CreepForOpportunity(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                                 current_lane_info, available_lanes)
 
-
             if target_lane_id == -1:
                 # merge 都找不到目标车道，则重新全局规划
                 re_global_planning_caller()
@@ -3359,9 +3823,11 @@ class CreepForOpportunity(smach.State):
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
-                                                                       target_lane_id, user_data.pose_data, merge_decelerate=1)
+                                                                       target_lane_id, user_data.pose_data,
+                                                                       merge_decelerate=1)
 
-            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario='merge')
+            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit,
+                                                    scenario='merge')
 
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                            available_lanes, target_lane_id, next_lane_id)
@@ -3382,7 +3848,8 @@ class CreepForOpportunity(smach.State):
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
                                           target_lane_id, next_lane_id)
 
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -3393,12 +3860,13 @@ class ExecuteMerge(smach.State):
     """
 
     """
+
     def __init__(self):
         smach.State.__init__(self, outcomes=['back_to_normal', 'break'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3426,7 +3894,6 @@ class ExecuteMerge(smach.State):
             target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                                 current_lane_info, available_lanes)
 
-
             if target_lane_id == -1:
                 return 'break'
 
@@ -3435,7 +3902,8 @@ class ExecuteMerge(smach.State):
                                                                        target_lane_id, user_data.pose_data,
                                                                        merge_decelerate=5)
 
-            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit, scenario='merge')
+            desired_length = desired_length_decider(available_lanes, target_lane_id, speed_upper_limit,
+                                                    scenario='merge')
 
             lanes_of_interest = lanes_of_interest_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                            available_lanes, target_lane_id, next_lane_id)
@@ -3451,14 +3919,16 @@ class ExecuteMerge(smach.State):
                 obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
                                               target_lane_id, next_lane_id)
 
-                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path)
             else:
                 speed_upper_limit = 0
 
                 obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
                                               target_lane_id, next_lane_id)
 
-                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path=[])
+                output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                              reference_path=[])
                 return 'break'
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -3472,9 +3942,9 @@ class DriveAlongLane(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['enter_parking_zone', 'lane_end', 'exit_park'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3517,7 +3987,8 @@ class DriveAlongLane(smach.State):
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
                                           target_lane_id, next_lane_id)
 
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
 
             if parking_slots_list != {}:
                 return 'enter_parking_zone'
@@ -3530,9 +4001,9 @@ class SelectParkingSlot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['have_empty_slot', 'no_empty_slot'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3552,14 +4023,15 @@ class SelectParkingSlot(smach.State):
         points_x = np.array(points_x)
         points_y = np.array(points_y)
         for key in user_data.parking_slots_list.keys():
-            print(key,user_data.parking_slots_list[key].lane_id,current_lane_info.cur_lane_id)
+            print(key, user_data.parking_slots_list[key].lane_id, current_lane_info.cur_lane_id)
             if user_data.parking_slots_list[key].lane_id == current_lane_info.cur_lane_id:
                 print("aaaaaaaaa")
-                res = lane_projection(points_x, points_y, points_num, user_data.parking_slots_list[key].lane_projection_point.x,
-                                                 user_data.parking_slots_list[key].lane_projection_point.y)
+                res = lane_projection(points_x, points_y, points_num,
+                                      user_data.parking_slots_list[key].lane_projection_point.x,
+                                      user_data.parking_slots_list[key].lane_projection_point.y)
                 print(res[-2], current_lane_info.before_length)
                 if current_lane_info.before_length + 10 > res[-2] >= current_lane_info.before_length:
-                    parking_slot_sorted.append([res[-2],key])
+                    parking_slot_sorted.append([res[-2], key])
         parking_slot_sorted.sort()
         print(parking_slot_sorted)
         while not rospy.is_shutdown():
@@ -3575,8 +4047,10 @@ class SelectParkingSlot(smach.State):
                 rospy.loginfo("park into a certain parking slot")
                 target_slot_id = mission_ahead.missionThingId
                 target_parking_slot = user_data.parking_slots_list[mission_ahead.missionThingId].points
-                target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
-                target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
+                target_parking_slot_projection.append(
+                    user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
+                target_parking_slot_projection.append(
+                    user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
                 return 'have_empty_slot'
             else:
                 # missionThing为“parkingArea" 选择车位
@@ -3585,12 +4059,12 @@ class SelectParkingSlot(smach.State):
                 extend_distance = 4
                 parking_area = []
                 for i in range(len(target_parking_area)):
-                    parking_area.append([target_parking_area[i].x,target_parking_area[i].y])
+                    parking_area.append([target_parking_area[i].x, target_parking_area[i].y])
                 parking_area = Polygon(parking_area)
                 obstacle_in_area = []
                 for key in user_data.obstacles_list.keys():
                     for point in user_data.obstacles_list[key].cur_bounding_points:
-                        new_point = Point([point.x,point.y])
+                        new_point = Point([point.x, point.y])
                         if parking_area.contains(new_point):
                             new_obstacle = []
                             for obstacle_points in user_data.obstacles_list[key].cur_bounding_points:
@@ -3602,7 +4076,8 @@ class SelectParkingSlot(smach.State):
                 for item in parking_slot_sorted:
                     key = item[1]
                     slot = user_data.parking_slots_list[key]
-                    slot_list = [[slot.points[0].x, slot.points[0].y], [slot.points[1].x, slot.points[1].y], [slot.points[2].x, slot.points[2].y], [slot.points[3].x, slot.points[3].y]]
+                    slot_list = [[slot.points[0].x, slot.points[0].y], [slot.points[1].x, slot.points[1].y],
+                                 [slot.points[2].x, slot.points[2].y], [slot.points[3].x, slot.points[3].y]]
                     lot_shape = Polygon(slot_list)
                     if parking_area.contains(lot_shape):
                         if user_data.parking_slots_list[key].slot_type == PARALLEL_SLOT:
@@ -3631,8 +4106,10 @@ class SelectParkingSlot(smach.State):
                     return 'no_empty_slot'
                 else:
                     target_parking_slot = user_data.parking_slots_list[target_slot_id].points
-                    target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
-                    target_parking_slot_projection.append(user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
+                    target_parking_slot_projection.append(
+                        user_data.parking_slots_list[target_slot_id].lane_projection_point.x)
+                    target_parking_slot_projection.append(
+                        user_data.parking_slots_list[target_slot_id].lane_projection_point.y)
                     rospy.loginfo("selected parking slot id %d points %s " % (key, target_parking_slot))
                     return 'have_empty_slot'
 
@@ -3641,9 +4118,9 @@ class DriveAndStopInFront(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['finished', 'exit_park'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3713,7 +4190,8 @@ class DriveAndStopInFront(smach.State):
                                                desired_length)
             else:
                 reference_path = []
-            dis_to_slot = math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(user_data.pose_data.mapY - project_result[1], 2))
+            dis_to_slot = math.sqrt(math.pow(user_data.pose_data.mapX - project_result[0], 2) + math.pow(
+                user_data.pose_data.mapY - project_result[1], 2))
             print(dis_to_slot)
             if dis_to_slot < STOP_BASE_LENGTH and user_data.pose_data.mVf < 0.5:
                 return 'finished'
@@ -3721,7 +4199,8 @@ class DriveAndStopInFront(smach.State):
             obstacle_of_interest_selector(user_data.obstacles_list, available_lanes, current_lane_info.cur_lane_id,
                                           target_lane_id, next_lane_id)
 
-            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit, reference_path)
+            output_filler(REF_PATH_FOLLOW, user_data.obstacles_list, speed_upper_limit, speed_lower_limit,
+                          reference_path)
 
             end_time = rospy.get_time()
             rospy.sleep(DECISION_PERIOD + start_time - end_time)
@@ -3732,9 +4211,9 @@ class ExecutePark(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded', 'failed'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3800,9 +4279,9 @@ class PoseCheck(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['okay', 'need_to_adjust'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3816,9 +4295,9 @@ class RePark(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3831,9 +4310,9 @@ class AwaitMission(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['continue'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3855,9 +4334,9 @@ class ExitParkingSlot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['back_to_lane'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3937,9 +4416,9 @@ class MarkParkingSpot(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3951,9 +4430,9 @@ class ReturnToLane(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3965,9 +4444,9 @@ class ReGlobalPlan(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['continue', 'need_to_turn_around'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3979,9 +4458,9 @@ class TurnAround(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['succeeded', 'failed'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -3993,9 +4472,9 @@ class Reverse(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['okay_to_turn_around'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -4010,9 +4489,9 @@ class ConditionJudge(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['brakeOn'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -4034,14 +4513,13 @@ class ConditionJudge(smach.State):
                 scenario_error_handle = REF_PATH_FOLLOW
 
 
-
 class StopImmediately(smach.State):
     def __init__(self):
         smach.State.__init__(self, outcomes=['brakeOff'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                         'lights_list', 'pose_data', 'parking_slots_list'],
+                                         'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                          'lights_list', 'pose_data', 'parking_slots_list']
+                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                              )
 
     def execute(self, user_data):
@@ -4057,9 +4535,9 @@ class StopImmediately(smach.State):
 #     def __init__(self):
 #         smach.State.__init__(self, outcomes=['brakeOn'],
 #                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                          'lights_list', 'pose_data', 'parking_slots_list'],
+#                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
 #                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                           'lights_list', 'pose_data', 'parking_slots_list']
+#                                           'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
 #                              )
 #
 #     def execute(self, user_data):
@@ -4074,15 +4552,14 @@ class StopImmediately(smach.State):
 #     def __init__(self):
 #         smach.State.__init__(self, outcomes=['brakeOff'],
 #                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                          'lights_list', 'pose_data', 'parking_slots_list'],
+#                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
 #                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
-#                                           'lights_list', 'pose_data', 'parking_slots_list']
+#                                           'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
 #                              )
 #
 #     def execute(self, user_data):
 #         while not rospy.is_shutdown():
 #             rospy.loginfo("currently in Await")
-
 
 
 #########################################
@@ -4110,6 +4587,9 @@ class StopImmediately(smach.State):
 def main():
     rospy.init_node('decision_smach')
 
+    global myNet
+    myNet = fillParameters(model_wb, myNet)
+
     listener()
     server()
     # Create the top level SMACH state machine
@@ -4120,15 +4600,16 @@ def main():
     sm_top.userdata.lights_list = None
     sm_top.userdata.pose_data = None
     sm_top.userdata.parking_slots_list = {}
+    sm_top.userdata.history_pose_data = []
 
     # Open the container
     with sm_top:
         # Create the sub SMACH state machine
         sm_con = smach.Concurrence(outcomes=['outcome5'], default_outcome='outcome5',
                                    input_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                               'lights_list', 'pose_data', 'parking_slots_list'],
+                                               'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                                    output_keys=['lane_list', 'obstacles_list', 'signs_data',
-                                                'lights_list', 'pose_data', 'parking_slots_list']
+                                                'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                                    )
         # {'outcome5':{'FOO': 'outcome2','BAR': 'outcome1'}}表示 FOO 和 BAR 输出都要满足条件才会输出 outcome5
 
@@ -4136,20 +4617,21 @@ def main():
         with sm_con:
             sm_con_scenario = smach.StateMachine(outcomes=['outcome4'],
                                                  input_keys=['lane_list', 'obstacles_list',
-                                                             'signs_data', 'lights_list', 'pose_data', 'parking_slots_list'],
+                                                             'signs_data', 'lights_list', 'pose_data',
+                                                             'parking_slots_list', 'history_pose_data'],
                                                  output_keys=['lane_list', 'obstacles_list',
                                                               'signs_data',
-                                                              'lights_list', 'pose_data', 'parking_slots_list']
+                                                              'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                                                  )
 
             with sm_con_scenario:
                 sm_scenario_startup = smach.StateMachine(outcomes=['in_lane_driving', 'merge_and_across', 'park'],
                                                          input_keys=['lane_list',
                                                                      'obstacles_list', 'signs_data', 'lights_list',
-                                                                     'pose_data', 'parking_slots_list'],
+                                                                     'pose_data', 'parking_slots_list', 'history_pose_data'],
                                                          output_keys=['lane_list',
                                                                       'obstacles_list', 'signs_data',
-                                                                      'lights_list', 'pose_data', 'parking_slots_list']
+                                                                      'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                                                          )
                 with sm_scenario_startup:
                     smach.StateMachine.add('STARTUP_CHECK', StartupCheck(), transitions={'ready': 'EXECUTE_STARTUP'})
@@ -4161,14 +4643,15 @@ def main():
                                                                                     'merge_and_across': 'MERGE_AND_ACROSS',
                                                                                     'park': 'PARK'})
 
-                sm_scenario_lane_follow = smach.StateMachine(outcomes=['park', 'intersection', 'merge_and_across', 'finished', 'stop_line'],
-                                                             input_keys=['lane_list',
-                                                                         'obstacles_list', 'signs_data', 'lights_list',
-                                                                         'pose_data', 'parking_slots_list'],
-                                                             output_keys=['lane_list',
-                                                                          'obstacles_list', 'signs_data',
-                                                                          'lights_list', 'pose_data', 'parking_slots_list']
-                                                             )
+                sm_scenario_lane_follow = smach.StateMachine(
+                    outcomes=['park', 'intersection', 'merge_and_across', 'finished', 'stop_line'],
+                    input_keys=['lane_list',
+                                'obstacles_list', 'signs_data', 'lights_list',
+                                'pose_data', 'parking_slots_list', 'history_pose_data'],
+                    output_keys=['lane_list',
+                                 'obstacles_list', 'signs_data',
+                                 'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
+                    )
                 with sm_scenario_lane_follow:
                     smach.StateMachine.add('IN_LANE_DRIVING', InLaneDriving(), transitions={'park': 'park',
                                                                                             'intersection': 'intersection',
@@ -4187,11 +4670,13 @@ def main():
                                                                                 input_keys=['lane_list',
                                                                                             'obstacles_list',
                                                                                             'signs_data', 'lights_list',
-                                                                                            'pose_data', 'parking_slots_list'],
+                                                                                            'pose_data',
+                                                                                            'parking_slots_list', 'history_pose_data'],
                                                                                 output_keys=['lane_list',
                                                                                              'obstacles_list',
                                                                                              'signs_data',
-                                                                                             'lights_list', 'pose_data', 'parking_slots_list']
+                                                                                             'lights_list', 'pose_data',
+                                                                                             'parking_slots_list', 'history_pose_data']
                                                                                 )
                     with sm_scenario_lane_follow_error_recovery:
                         smach.StateMachine.add('FIND_RECOVERY_SOLUTION', FindRecoverySolution(),
@@ -4214,10 +4699,11 @@ def main():
                 sm_scenario_intersection = smach.StateMachine(outcomes=['succeeded'],
                                                               input_keys=['lane_list',
                                                                           'obstacles_list', 'signs_data', 'lights_list',
-                                                                          'pose_data', 'parking_slots_list'],
+                                                                          'pose_data', 'parking_slots_list', 'history_pose_data'],
                                                               output_keys=['lane_list',
                                                                            'obstacles_list', 'signs_data',
-                                                                           'lights_list', 'pose_data', 'parking_slots_list']
+                                                                           'lights_list', 'pose_data',
+                                                                           'parking_slots_list', 'history_pose_data']
                                                               )
                 with sm_scenario_intersection:
                     smach.StateMachine.add('APPROACH_INTERSECTION', ApproachIntersection(),
@@ -4236,14 +4722,14 @@ def main():
                                        transitions={'succeeded': 'LANE_FOLLOW'})
 
                 sm_scenario_stop = smach.StateMachine(outcomes=['succeeded'],
-                                                              input_keys=['lane_list',
-                                                                          'obstacles_list', 'signs_data', 'lights_list',
-                                                                          'pose_data', 'parking_slots_list'],
-                                                              output_keys=['lane_list',
-                                                                           'obstacles_list', 'signs_data',
-                                                                           'lights_list', 'pose_data',
-                                                                           'parking_slots_list']
-                                                              )
+                                                      input_keys=['lane_list',
+                                                                  'obstacles_list', 'signs_data', 'lights_list',
+                                                                  'pose_data', 'parking_slots_list', 'history_pose_data'],
+                                                      output_keys=['lane_list',
+                                                                   'obstacles_list', 'signs_data',
+                                                                   'lights_list', 'pose_data',
+                                                                   'parking_slots_list', 'history_pose_data']
+                                                      )
                 with sm_scenario_stop:
                     smach.StateMachine.add('APPROACH_STOP_LINE', ApproachStopLine(),
                                            transitions={'near_stop': 'CREEP_TO_STOP_LINE',
@@ -4257,10 +4743,11 @@ def main():
 
                 sm_scenario_merge = smach.StateMachine(outcomes=['succeeded', 'restart'],
                                                        input_keys=['lane_list', 'obstacles_list',
-                                                                   'signs_data', 'lights_list', 'pose_data', 'parking_slots_list'],
+                                                                   'signs_data', 'lights_list', 'pose_data',
+                                                                   'parking_slots_list', 'history_pose_data'],
                                                        output_keys=['lane_list',
                                                                     'obstacles_list', 'signs_data',
-                                                                    'lights_list', 'pose_data', 'parking_slots_list']
+                                                                    'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                                                        )
                 with sm_scenario_merge:
                     smach.StateMachine.add('CREEP_FOR_OPPORTUNITY', CreepForOpportunity(),
@@ -4275,10 +4762,11 @@ def main():
 
                 sm_scenario_park = smach.StateMachine(outcomes=['mission_continue'],
                                                       input_keys=['lane_list', 'obstacles_list',
-                                                                  'signs_data', 'lights_list', 'pose_data', 'parking_slots_list'],
+                                                                  'signs_data', 'lights_list', 'pose_data',
+                                                                  'parking_slots_list', 'history_pose_data'],
                                                       output_keys=['lane_list', 'obstacles_list',
                                                                    'signs_data',
-                                                                   'lights_list', 'pose_data', 'parking_slots_list']
+                                                                   'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
                                                       )
                 with sm_scenario_park:
                     smach.StateMachine.add('DRIVE_ALONG_LANE', DriveAlongLane(),
@@ -4324,8 +4812,6 @@ def main():
             #     smach.StateMachine.add('GEAR_SWITCH', GearSwitch(), transitions={'succeeded': 'succeeded'})
             # smach.Concurrence.add('GEAR_SWITCH', sm_gear_switch)
 
-
-
             # sm_re_global_Planning = smach.StateMachine(outcomes=['succeeded'],
             #                                            input_keys=['lane_list', 'obstacles_list',
             #                                                        'signs_data', 'lights_list', 'pose_data'],
@@ -4338,18 +4824,18 @@ def main():
             #     smach.StateMachine.add('STOP', StopImmediately(), transitions={'succeeded': 'MOVING_FORWARD'})
             # smach.Concurrence.add('RE_GLOBAL_PLANNING', sm_re_global_Planning)
 
-            sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'],
-                                                    input_keys=['lane_list', 'obstacles_list',
-                                                                'signs_data', 'lights_list', 'pose_data',
-                                                                'parking_slots_list'],
-                                                    output_keys=['lane_list', 'obstacles_list',
-                                                                 'signs_data',
-                                                                 'lights_list', 'pose_data', 'parking_slots_list']
-                                                    )
-            with sm_emergency_brake:
-                smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'brakeOn': 'AWAIT'})
-                smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
-            smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
+            # sm_emergency_brake = smach.StateMachine(outcomes=['succeeded'],
+            #                                         input_keys=['lane_list', 'obstacles_list',
+            #                                                     'signs_data', 'lights_list', 'pose_data',
+            #                                                     'parking_slots_list', 'history_pose_data'],
+            #                                         output_keys=['lane_list', 'obstacles_list',
+            #                                                      'signs_data',
+            #                                                      'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data']
+            #                                         )
+            # with sm_emergency_brake:
+            #     smach.StateMachine.add('MOVING_FORWARD', ConditionJudge(), transitions={'brakeOn': 'AWAIT'})
+            #     smach.StateMachine.add('AWAIT', StopImmediately(), transitions={'brakeOff': 'MOVING_FORWARD'})
+            # smach.Concurrence.add('EMERGENCY_BRAKE', sm_emergency_brake)
 
         smach.StateMachine.add('FINITE_STATE_MACHINE', sm_con, transitions={'outcome5': 'FINITE_STATE_MACHINE'})
 
@@ -4376,7 +4862,7 @@ if __name__ == '__main__':
 
 2.StateMachine：状态机，通过add()添加状态，函数说明：
     smach.StateMachine.add(name, class, transitions,remapping)
-    
+
         name，状态机名字
         class，状态机类
         transitions，状态机状态跳转
@@ -4384,7 +4870,7 @@ if __name__ == '__main__':
 
 3.IntrospectionServer：内部检测服务器，用于观察状态机状态
     IntrospectionServer(name, StateMachine,level)
-    
+
         name，观测服务器名字
         StateMachine，状态机
         level，状态机层级
