@@ -5051,11 +5051,15 @@ def main():
                                                                                             'need_to_change_lane': 'LANE_CHANGE_PREPARING',
                                                                                             'error': 'ERROR_RECOVERY',
                                                                                             'finished': 'finished',
-                                                                                            'stop_line': 'stop_line'})
+                                                                                            'stop_line': 'stop_line',
+                                                                                            'lane_change_game': 'LANE_CHANGING_GAME'})
                     smach.StateMachine.add('LANE_CHANGE_PREPARING', LaneChangePreparing(),
                                            transitions={'cancel_intention': 'IN_LANE_DRIVING',
                                                         'ready_to_change_lane': 'LANE_CHANGING'})
                     smach.StateMachine.add('LANE_CHANGING', LaneChanging(),
+                                           transitions={'lane_change_completed': 'IN_LANE_DRIVING',
+                                                        'lane_change_cancelled': 'IN_LANE_DRIVING'})
+                    smach.StateMachine.add('LANE_CHANGING_GAME', LaneChangingGameTheory(),
                                            transitions={'lane_change_completed': 'IN_LANE_DRIVING',
                                                         'lane_change_cancelled': 'IN_LANE_DRIVING'})
                     sm_scenario_lane_follow_error_recovery = smach.StateMachine(outcomes=['back_to_normal'],
