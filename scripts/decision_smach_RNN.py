@@ -2435,7 +2435,8 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                             elif evaluation_result_right == -1:
                                 print("10")
                                 target_lane_id_game = cur_lane_info.cur_lane_id
-
+            if target_lane_id == -1:
+                target_lane_id = target_lane_id_rules
         elif 20 < cur_lane_info.dist_to_next_road < 100:
             # 条件有待确定
             if lane_priority[0] == 2:
@@ -2513,6 +2514,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
 
     rospy.loginfo("this target lane id %d" % target_lane_id)
     rospy.loginfo("next target lane id%d" % next_lane_id)
+    rospy.loginfo("game theory target lane id%d" % target_lane_id_game)
     return target_lane_id, next_lane_id, target_lane_id_game
 
 
