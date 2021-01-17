@@ -3227,7 +3227,7 @@ class InLaneDriving(smach.State):
             target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
-            if target_lane_id_game != -1:
+            if target_lane_id_game != -1 and target_lane_id_game != current_lane_info.cur_lane_id:
                 last_target_lane_id_ugv = target_lane_id_game
                 return 'lane_change_game'
 
