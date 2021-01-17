@@ -217,6 +217,7 @@ myNet_mandatory = RNN()
 
 def fillParameters(wb=None, net=None):
     model_dict = net.state_dict()  # 取出自己网络的参数字典
+    print(model_dict)
     #print(wb)
     start_index = 0
     for k, v in model_dict.items():
@@ -237,6 +238,7 @@ def fillParameters(wb=None, net=None):
         model_dict[k] = temp_value
         start_index = start_index + this_length
     net.load_state_dict(model_dict)
+    print(model_dict)
     return net
 
 class MissionAhead:
