@@ -2018,46 +2018,6 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                                 obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
                                 obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
                                 obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == -1 and evaluation_result_right == -1:
-                                print("10")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
-                            elif evaluation_result_left == -1 and evaluation_result_right == 1:
-                                print("1111")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
-                                speed_upper_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                                # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
-                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
-                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == -1 and evaluation_result_right == 2:
-                                print("1212")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
-                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == -1 and evaluation_result_right == 3:
-                                print("1313")
-                                target_lane_id_game = cur_lane_info.right_lane_id
-                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == 1 and evaluation_result_right == -1:
-                                print("1414")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
-                                speed_upper_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
-                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == 2 and evaluation_result_right == -1:
-                                print("1515")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
-                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == 3 and evaluation_result_right == -1:
-                                print("1616")
-                                target_lane_id_game = cur_lane_info.left_lane_id
-                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
 
                     elif selectable_target_lane_list[0] == selectable_lanes[1]:
                         # 左车道
@@ -2244,9 +2204,6 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                                 speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
                                 obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
                                 obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_left == -1:
-                                print("10")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
 
                     elif selectable_target_lane_list[0] == selectable_lanes[2]:
                         game_vehicle_right = -1
@@ -2432,9 +2389,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
                                 speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
                                 obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
                                 obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                            elif evaluation_result_right == -1:
-                                print("10")
-                                target_lane_id_game = cur_lane_info.cur_lane_id
+
             if target_lane_id == -1:
                 target_lane_id = target_lane_id_rules
         elif 20 < cur_lane_info.dist_to_next_road < 100:
@@ -3528,8 +3483,8 @@ class LaneChangingGameTheory(smach.State):
             # compare the reward value among the surrounding lanes.
             target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
-            # if target_lane_id_game != last_target_lane_id_ugv:
-            #     return 'lane_change_cancelled'
+            if target_lane_id_game != last_target_lane_id_ugv:
+                return 'lane_change_cancelled'
 
             last_chosen_lane_id_ugv = target_lane_id_game
 
