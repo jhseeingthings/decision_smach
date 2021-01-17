@@ -138,7 +138,7 @@ TIME_DELAY = 1
 # is estimated as the maximum system delay.
 TIME_SPACE = 1
 # is defined as the minimum required temporal spacing between vehicles, where 1 s approximates a vehicle length per 10 mph.
-TIME_LANE_CHANGE_CONSIDERATION = 1.5
+TIME_LANE_CHANGE_CONSIDERATION = 0.8
 # TIME_LANE_CHANGE_CALM_DOWN = 1
 TIME_LANE_CHANGE_DEADLINE = 15
 
