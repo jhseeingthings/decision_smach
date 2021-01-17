@@ -149,25 +149,26 @@ MEDIUM_SAFE_DISTANCE = 0.5
 PARALLEL_SLOT = 1
 VERTICAL_SLOT = 2
 
+model_wb_discretionary = np.load('../src/best_parameter_discretionary.npy')
+model_wb_mandatory = np.load('../src/best_parameter_mandatory.npy')
 
-outputs_num = 8
-hidden_size = 10
-input_size = 9
-layers_num = 1
+outputs_num_discretionary = 8
+hidden_size_discretionary = 10
+input_size_discretionary = 9
+layers_num_discretionary = 1
 time_step = 5
-
 
 class RNN(nn.Module):
     def __init__(self):
         super(RNN, self).__init__()
 
         self.rnn = nn.RNN(
-            input_size=input_size,
-            hidden_size=hidden_size,     # rnn hidden unit
-            num_layers=layers_num,       # number of rnn layer
+            input_size=input_size_discretionary,
+            hidden_size=hidden_size_discretionary,     # rnn hidden unit
+            num_layers=layers_num_discretionary,       # number of rnn layer
             batch_first=True,   # input & output will has batch size as 1s dimension. e.g. (batch, time_step, input_size)
         )
-        self.out = nn.Linear(hidden_size, outputs_num)
+        self.out = nn.Linear(hidden_size_discretionary, outputs_num_discretionary)
 
     def forward(self, x):
         # x (batch, time_step, input_size)
@@ -181,10 +182,38 @@ class RNN(nn.Module):
         #    outs.append(self.out(r_out[:, time_step, :]))
         return outs, h_state
 
-model_wb = np.load('../src/best_parameter.npy')
+myNet_discretionary = RNN()
 
-myNet = RNN()
+outputs_num_mandatory = 8
+hidden_size_mandatory = 10
+input_size_mandatory = 9
+layers_num_mandatory = 1
 
+class RNN(nn.Module):
+    def __init__(self):
+        super(RNN, self).__init__()
+
+        self.rnn = nn.RNN(
+            input_size=input_size_mandatory,
+            hidden_size=hidden_size_mandatory,     # rnn hidden unit
+            num_layers=layers_num_mandatory,       # number of rnn layer
+            batch_first=True,   # input & output will has batch size as 1s dimension. e.g. (batch, time_step, input_size)
+        )
+        self.out = nn.Linear(hidden_size_mandatory, outputs_num_mandatory)
+
+    def forward(self, x):
+        # x (batch, time_step, input_size)
+        # h_state (n_layers, batch, hidden_size)
+        # r_out (batch, time_step, hidden_size)
+        r_out, h_state = self.rnn(x)
+
+        outs = []    # save all predictions
+        outs = self.out(r_out[:, time_step-1, :])
+        #for time_step in range(r_out.size(1)):    # calculate output for each time step
+        #    outs.append(self.out(r_out[:, time_step, :]))
+        return outs, h_state
+
+myNet_mandatory = RNN()
 
 def fillParameters(wb=None, net=None):
     model_dict = net.state_dict()  # 取出自己网络的参数字典
@@ -1497,6 +1526,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
     如果小于期望预瞄距离，则进行下一条车道的拼接
     """
     target_lane_id = -1
+    target_lane_id_game = -1
     # 当前没有目标车道或者当前车道优先级不为正,为了切入车道，只需在场景开始时选择一次
     if scenario == "merge":
         # 暂时先考虑最近的车道,需满足有足够的行驶距离，并且优先级为正
@@ -1520,27 +1550,6 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         10[0] = v_s, 10[1] = game_v-s_v, 10[2] = game_s-s_s, 10[3] = f_s-s_s, 10[4] = game_f_v - s_v
         10[5] = game_f_s - s_s, 10[6] = game_f_v - f_v, 10[7] = game_f_s-f_s, 10[8] = game_f_v-game_v, 10[10] = lane_priority
         """
-
-        if cur_lane_info.dist_to_next_road >= 100:
-            # 主动变道
-            # 先判断当前车道的行驶效率
-            if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
-                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
-                    available_lanes[selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
-                target_lane_id = cur_lane_info.cur_lane_id
-            else:
-
-
-
-        elif 20 < cur_lane_info.dist_to_next_road < 100:
-            # 条件有待确定
-            target_lane_id = cur_lane_info.cur_lane_id
-            # if lane_priority[0] == 2:
-        else:
-            target_lane_id = cur_lane_info.cur_lane_id
-
-
-
         selectable_lanes = [cur_lane_info.cur_lane_id, cur_lane_info.left_lane_id, cur_lane_info.right_lane_id]
         rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
         if cur_lane_info.left_lane_id not in available_lanes.keys():
@@ -1580,500 +1589,888 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         elif right_found_2:
             right_priority = 2
 
-        game_vehicle_left, game_vehicle_right = -1, -1
-        game_front_vehicle_left, game_front_vehicle_right = -1, -1
-        front_vehicle = -1
+        temp_priority_list = []
+        # 与剩余路径长短成反比的优先级系数
+        if cur_lane_info.dist_to_next_road <= 100:
+            lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
+        else:
+            if cur_lane_info.cur_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(cur_lane_info.cur_priority)
+            if left_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(left_priority)
+            if right_priority == 2:
+                temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
+            else:
+                temp_priority_list.append(left_priority)
+            lane_priority += temp_priority_list
 
-        vehicle_s = available_lanes[cur_lane_info.cur_lane_id].before_length
-
+        lane_drivable_length = []
+        lane_drivable_length_ratio = []
+        lane_efficiency_ratio = []
+        lane_efficiency = []
         for i in range(len(selectable_lanes)):
-            print("lane id %d" % selectable_lanes[i])
-            target_lane_obstacles_s_id = []
-            for obstacle_index in obstacles_list.keys():
-                obstacle_info = obstacles_list[obstacle_index]
-                if obstacle_info.type == 'VEHICLE' or obstacle_info.type == 'BICYCLE' or obstacle_info.type == 'PEDESTRIAN':
-                    if obstacle_info.cur_lane_id == selectable_lanes[i] and selectable_lanes[i]:
-                        target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
-            target_lane_obstacles_s_id.sort()
-            before_vehicle_id = []
-            after_vehicle_id = []
-            if i == 0:
-                for j in range(len(target_lane_obstacles_s_id)):
-                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
-                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+            if selectable_lanes[i] > 0:
+                # 行驶效率和可行驶距离都进行归一化操作
+                efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
+                        lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
+                lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
+                lane_efficiency_ratio.append(efficiency)
+                if available_lanes[selectable_lanes[i]].after_length < EPS:
+                    free_space = 0
+                else:
+                    free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
+                                                                                                      selectable_lanes[
+                                                                                                          i]].after_length,
+                                                                                                  OBSERVE_RANGE)
+                lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
+                lane_drivable_length_ratio.append(free_space)
+
+                lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
+            else:
+                lane_reward.append(0)
+                lane_efficiency_ratio.append(0)
+                lane_drivable_length_ratio.append(0)
+                lane_efficiency.append(0)
+                lane_drivable_length.append(0)
+        rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
+        rospy.loginfo("lane_priority %s" % list(lane_priority))
+        rospy.loginfo("can_change_constraint %s" % list(can_change_constraint))
+        rospy.loginfo("lane_reward %s" % list(lane_reward))
+        rospy.loginfo("lane_efficiency %s" % list(lane_efficiency))
+        rospy.loginfo("lane_efficiency_ratio %s" % list(lane_efficiency_ratio))
+        rospy.loginfo("lane_drivable_length %s" % list(lane_drivable_length))
+        rospy.loginfo("lane_drivable_length_ratio %s" % list(lane_drivable_length_ratio))
+        rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
+
+        ### 需求分析
+        target_lane_id_rules = -1
+        target_lane_id_game = -1
+        selectable_target_lane_list = []
+        if cur_lane_info.dist_to_next_road >= 100:
+            # 主动变道,考虑两边
+            # 先判断当前车道的行驶效率
+            if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
+                    lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
+                    available_lanes[selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
+                target_lane_id_rules = cur_lane_info.cur_lane_id
+            else:
+                # 有变道需求
+                # 先用规则方法选择目标车道，并用回报评价模型选择备选的车道
+                if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
+                    selectable_target_lane_list = [cur_lane_info.left_lane_id, cur_lane_info.right_lane_id]
+                    if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
+                        target_lane_id_rules = cur_lane_info.right_lane_id
+                    elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
+                        target_lane_id_rules = cur_lane_info.left_lane_id
+                elif lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[1] > EPS + LANE_CHANGE_BASE_LENGTH:
+                    selectable_target_lane_list = [cur_lane_info.left_lane_id]
+                    target_lane_id_rules = cur_lane_info.left_lane_id
+                elif lane_reward[2] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[2] > EPS + LANE_CHANGE_BASE_LENGTH:
+                    selectable_target_lane_list = [cur_lane_info.right_lane_id]
+                    target_lane_id_rules = cur_lane_info.right_lane_id
+
+                if target_lane_id_rules == -1:
+                    if lane_drivable_length[1] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[1] - lane_reward[0] > EPS:
+                        target_lane_id_rules = cur_lane_info.left_lane_id
+                    elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and lane_reward[2] - lane_reward[0] > EPS:
+                        target_lane_id_rules = cur_lane_info.right_lane_id
                     else:
-                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
-                if after_vehicle_id:
-                    front_vehicle = after_vehicle_id[0]
-            elif i == 1:
-                for j in range(len(target_lane_obstacles_s_id)):
-                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
-                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
-                    else:
-                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
-                if after_vehicle_id:
-                    game_front_vehicle_left = after_vehicle_id[0]
-                if before_vehicle_id:
-                    game_vehicle_left = before_vehicle_id[-1]
-            elif i == 2:
-                for j in range(len(target_lane_obstacles_s_id)):
-                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
-                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
-                    else:
-                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
-                if after_vehicle_id:
-                    game_front_vehicle_right = after_vehicle_id[0]
-                if before_vehicle_id:
-                    game_vehicle_right = before_vehicle_id[-1]
+                        target_lane_id_rules = cur_lane_info.cur_lane_id
 
-        print("front vehicle %d " % front_vehicle)
-        print("game left vehicle %d " % game_vehicle_left)
-        print("game right vehicle %d " % game_vehicle_right)
-        print("game front left vehicle %d " % game_front_vehicle_left)
-        print("game front right vehicle %d " % game_front_vehicle_right)
+                if target_lane_id_rules <= 0:
+                    target_lane_id_rules = cur_lane_info.cur_lane_id
 
-        rnn_input_left, rnn_input_right = np.zeros((time_step, input_size)), np.zeros((time_step, input_size))
+                if len(selectable_target_lane_list):
+                    if len(selectable_target_lane_list) == 2:
+                        # 查看是否存在博弈车辆
+                        game_vehicle_left, game_vehicle_right = -1, -1
+                        game_front_vehicle_left, game_front_vehicle_right = -1, -1
+                        front_vehicle = -1
 
-        vehicle_s, vehicle_v = [], []
+                        vehicle_s = available_lanes[cur_lane_info.cur_lane_id].before_length
 
-        temp_lane = lane_list[cur_lane_info.cur_lane_id]
-        points_x, points_y = [], []
-        for j in range(len(temp_lane.points)):
-            points_x.append(temp_lane.points[j].x)
-            points_y.append(temp_lane.points[j].y)
-        points_num = len(points_x)
-        points_x = np.array(points_x)
-        points_y = np.array(points_y)
+                        for i in range(len(selectable_lanes)):
+                            print("lane id %d" % selectable_lanes[i])
+                            target_lane_obstacles_s_id = []
+                            for obstacle_index in obstacles_list.keys():
+                                obstacle_info = obstacles_list[obstacle_index]
+                                if obstacle_info.type == 'VEHICLE' or obstacle_info.type == 'BICYCLE' or obstacle_info.type == 'PEDESTRIAN':
+                                    if obstacle_info.cur_lane_id == selectable_lanes[i] and selectable_lanes[i] > 0:
+                                        target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
+                            target_lane_obstacles_s_id.sort()
+                            before_vehicle_id = []
+                            after_vehicle_id = []
+                            if i == 0:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    front_vehicle = after_vehicle_id[0]
+                            elif i == 1:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if vehicle_s - 20 < target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    game_front_vehicle_left = after_vehicle_id[0]
+                                if before_vehicle_id:
+                                    game_vehicle_left = before_vehicle_id[-1]
+                            elif i == 2:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if vehicle_s - 20 < target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    game_front_vehicle_right = after_vehicle_id[0]
+                                if before_vehicle_id:
+                                    game_vehicle_right = before_vehicle_id[-1]
 
-        is_ready = True
+                        print("front vehicle %d " % front_vehicle)
+                        print("game left vehicle %d " % game_vehicle_left)
+                        print("game right vehicle %d " % game_vehicle_right)
+                        print("game front left vehicle %d " % game_front_vehicle_left)
+                        print("game front right vehicle %d " % game_front_vehicle_right)
 
-        # calculate self vehicle's state
-        for history_pose in history_pose_data:
-            result = lane_projection(points_x, points_y, points_num,
-                                     history_pose.mapX, history_pose.mapY, history_pose.mapHeading)
-            vehicle_v.append(math.cos(result[4]) * history_pose.mVf)
-            vehicle_s.append(result[5])
-        vehicle_s = np.array(vehicle_s)
-        vehicle_v = np.array(vehicle_v)
-        if len(vehicle_v) < 5:
-            is_ready = False
+                        vehicle_s, vehicle_v = [], []
 
-        # fill in right parameters
-        if game_vehicle_left != -1:
-            game_vehicle_left_s = np.array(obstacles_list[game_vehicle_left].s_record)
-            game_vehicle_left_v = np.array(obstacles_list[game_vehicle_left].s_velocity)
-            if len(game_vehicle_left_s) < 5:
-                is_ready = False
-        if game_vehicle_right != -1:
-            game_vehicle_right_s = np.array(obstacles_list[game_vehicle_right].s_record)
-            game_vehicle_right_v = np.array(obstacles_list[game_vehicle_right].s_velocity)
-            if len(game_vehicle_right_s) < 5:
-                is_ready = False
-        if game_front_vehicle_left != -1:
-            game_front_vehicle_left_s = np.array(obstacles_list[game_front_vehicle_left].s_record)
-            game_front_vehicle_left_v = np.array(obstacles_list[game_front_vehicle_left].s_velocity)
-            if len(game_front_vehicle_left_s) < 5:
-                is_ready = False
-        if game_front_vehicle_right != -1:
-            game_front_vehicle_right_s = np.array(obstacles_list[game_front_vehicle_right].s_record)
-            game_front_vehicle_right_v = np.array(obstacles_list[game_front_vehicle_right].s_velocity)
-            if len(game_front_vehicle_right_s) < 5:
-                is_ready = False
-        if front_vehicle != -1:
-            front_vehicle_s = np.array(obstacles_list[front_vehicle].s_record)
-            front_vehicle_v = np.array(obstacles_list[front_vehicle].s_velocity)
-            if len(front_vehicle_s) < 5:
-                is_ready = False
+                        temp_lane = lane_list[cur_lane_info.cur_lane_id]
+                        points_x, points_y = [], []
+                        for j in range(len(temp_lane.points)):
+                            points_x.append(temp_lane.points[j].x)
+                            points_y.append(temp_lane.points[j].y)
+                        points_num = len(points_x)
+                        points_x = np.array(points_x)
+                        points_y = np.array(points_y)
 
-        if is_ready:
-            if game_vehicle_left != -1:
-                for time_index in range(time_step):
+                        is_ready = True
 
-                    rnn_input_left[time_index, 0] = vehicle_s[time_index - 5]
-                    rnn_input_left[time_index, 1] = game_vehicle_left_v[time_index - 5] - vehicle_v[time_index - 5]
-                    rnn_input_left[time_index, 2] = game_vehicle_left_s[time_index - 5] - vehicle_s[time_index - 5]
-                    if front_vehicle != -1:
-                        rnn_input_left[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[time_index - 5]
-                    else:
-                        rnn_input_left[time_index, 3] = OBSERVE_RANGE
-                    if game_front_vehicle_left != -1:
-                        rnn_input_left[time_index, 4] = game_front_vehicle_left_v[time_index - 5] - vehicle_v[time_index - 5]
-                        rnn_input_left[time_index, 5] = game_front_vehicle_left_s[time_index - 5] - vehicle_s[time_index - 5]
-                    else:
-                        rnn_input_left[time_index, 4] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - vehicle_v[time_index - 5]
-                        rnn_input_left[time_index, 5] = OBSERVE_RANGE
-                    if game_front_vehicle_left != -1 and front_vehicle != -1:
-                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - front_vehicle_v[time_index - 5]
-                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - front_vehicle_s[time_index - 5]
-                    elif game_front_vehicle_left != -1:
-                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
-                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - (vehicle_s[time_index - 5] + OBSERVE_RANGE)
-                    elif front_vehicle != -1:
-                        rnn_input_left[time_index, 6] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - front_vehicle_v[
-                            time_index - 5]
-                        rnn_input_left[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - front_vehicle_s[
-                            time_index - 5]
-                    else:
-                        rnn_input_left[time_index, 6] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
-                        rnn_input_left[time_index, 7] = 0
-                    if game_front_vehicle_left != -1:
-                        rnn_input_left[time_index, 8] = game_front_vehicle_left_v[time_index - 5] - game_vehicle_left_v[time_index - 5]
-                    else:
-                        rnn_input_left[time_index, 8] = lane_list[cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - game_vehicle_left_v[time_index - 5]
-                # rnn_input_left[time_index, 9] = left_priority
+                        # calculate self vehicle's state
+                        for history_pose in history_pose_data:
+                            result = lane_projection(points_x, points_y, points_num,
+                                                     history_pose.mapX, history_pose.mapY, history_pose.mapHeading)
+                            vehicle_v.append(math.cos(result[4]) * history_pose.mVf)
+                            vehicle_s.append(result[5])
+                        vehicle_s = np.array(vehicle_s)
+                        vehicle_v = np.array(vehicle_v)
+                        if len(vehicle_v) < 5:
+                            is_ready = False
 
-            if game_vehicle_right != -1:
-                for time_index in range(time_step):
-                    rnn_input_right[time_index, 0] = vehicle_s[time_index - 5]
-                    rnn_input_right[time_index, 1] = game_vehicle_right_v[time_index - 5] - vehicle_v[time_index - 5]
-                    rnn_input_right[time_index, 2] = game_vehicle_right_s[time_index - 5] - vehicle_s[time_index - 5]
-                    if front_vehicle != -1:
-                        rnn_input_right[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[time_index - 5]
-                    else:
-                        rnn_input_right[time_index, 3] = OBSERVE_RANGE
-                    if game_front_vehicle_right != -1:
-                        rnn_input_right[time_index, 4] = game_front_vehicle_right_v[time_index - 5] - vehicle_v[
-                            time_index - 5]
-                        rnn_input_right[time_index, 5] = game_front_vehicle_right_s[time_index - 5] - vehicle_s[
-                            time_index - 5]
-                    else:
-                        rnn_input_right[time_index, 4] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
-                                                         vehicle_v[time_index - 5]
-                        rnn_input_right[time_index, 5] = OBSERVE_RANGE
-                    if game_front_vehicle_right != -1 and front_vehicle != -1:
-                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - front_vehicle_v[
-                            time_index - 5]
-                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - front_vehicle_s[
-                            time_index - 5]
-                    elif game_front_vehicle_right != -1:
-                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - lane_list[
-                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
-                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - (
-                                    vehicle_s[time_index - 5] + OBSERVE_RANGE)
-                    elif front_vehicle != -1:
-                        rnn_input_right[time_index, 6] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
-                                                         front_vehicle_v[
-                                                             time_index - 5]
-                        rnn_input_right[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - front_vehicle_s[
-                            time_index - 5]
-                    else:
-                        rnn_input_right[time_index, 6] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
-                                                         lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
-                        rnn_input_right[time_index, 7] = 0
-                    if game_front_vehicle_right != -1:
-                        rnn_input_right[time_index, 8] = game_front_vehicle_right_v[time_index - 5] - game_vehicle_right_v[
-                            time_index - 5]
-                    else:
-                        rnn_input_right[time_index, 8] = lane_list[cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
-                                                         game_vehicle_right_v[time_index - 5]
+                        # fill in right parameters
+                        if game_vehicle_left != -1:
+                            game_vehicle_left_s = np.array(obstacles_list[game_vehicle_left].s_record)
+                            game_vehicle_left_v = np.array(obstacles_list[game_vehicle_left].s_velocity)
+                            if len(game_vehicle_left_s) < 5:
+                                is_ready = False
+                        if game_vehicle_right != -1:
+                            game_vehicle_right_s = np.array(obstacles_list[game_vehicle_right].s_record)
+                            game_vehicle_right_v = np.array(obstacles_list[game_vehicle_right].s_velocity)
+                            if len(game_vehicle_right_s) < 5:
+                                is_ready = False
+                        if game_front_vehicle_left != -1:
+                            game_front_vehicle_left_s = np.array(obstacles_list[game_front_vehicle_left].s_record)
+                            game_front_vehicle_left_v = np.array(obstacles_list[game_front_vehicle_left].s_velocity)
+                            if len(game_front_vehicle_left_s) < 5:
+                                is_ready = False
+                        if game_front_vehicle_right != -1:
+                            game_front_vehicle_right_s = np.array(obstacles_list[game_front_vehicle_right].s_record)
+                            game_front_vehicle_right_v = np.array(obstacles_list[game_front_vehicle_right].s_velocity)
+                            if len(game_front_vehicle_right_s) < 5:
+                                is_ready = False
+                        if front_vehicle != -1:
+                            front_vehicle_s = np.array(obstacles_list[front_vehicle].s_record)
+                            front_vehicle_v = np.array(obstacles_list[front_vehicle].s_velocity)
+                            if len(front_vehicle_s) < 5:
+                                is_ready = False
 
-            rnn_input_left = np.array([rnn_input_left])
-            rnn_input_tensor_left = torch.from_numpy(rnn_input_left).float()
+                        rnn_input_left, rnn_input_right = np.zeros((time_step, input_size_discretionary)), np.zeros(
+                            (time_step, input_size_discretionary))
 
-            rnn_input_right = np.array([rnn_input_right])
-            rnn_input_tensor_right = torch.from_numpy(rnn_input_right).float()
+                        if is_ready:
+                            if game_vehicle_left != -1:
+                                for time_index in range(time_step):
 
-            evaluation_result_left, evaluation_result_right = -1, -1
+                                    rnn_input_left[time_index, 0] = vehicle_s[time_index - 5]
+                                    rnn_input_left[time_index, 1] = game_vehicle_left_v[time_index - 5] - vehicle_v[
+                                        time_index - 5]
+                                    rnn_input_left[time_index, 2] = game_vehicle_left_s[time_index - 5] - vehicle_s[
+                                        time_index - 5]
+                                    if front_vehicle != -1:
+                                        rnn_input_left[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[
+                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 3] = OBSERVE_RANGE
+                                    if game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 4] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        vehicle_v[
+                                                                            time_index - 5]
+                                        rnn_input_left[time_index, 5] = game_front_vehicle_left_s[time_index - 5] - \
+                                                                        vehicle_s[
+                                                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 4] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        vehicle_v[time_index - 5]
+                                        rnn_input_left[time_index, 5] = OBSERVE_RANGE
+                                    if game_front_vehicle_left != -1 and front_vehicle != -1:
+                                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        front_vehicle_v[time_index - 5]
+                                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - \
+                                                                        front_vehicle_s[time_index - 5]
+                                    elif game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        lane_list[
+                                                                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - (
+                                                vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                                    elif front_vehicle != -1:
+                                        rnn_input_left[time_index, 6] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        front_vehicle_v[
+                                                                            time_index - 5]
+                                        rnn_input_left[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - \
+                                                                        front_vehicle_s[
+                                                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 6] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        lane_list[
+                                                                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_left[time_index, 7] = 0
+                                    if game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 8] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        game_vehicle_left_v[time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 8] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        game_vehicle_left_v[time_index - 5]
+                                # rnn_input_left[time_index, 9] = left_priority
 
-            if game_vehicle_left != -1:
-                tmp_output, h_state = myNet(rnn_input_tensor_left)
-                tmp_output = tmp_output.T
-                tmp_output = tmp_output.detach().numpy()
-                tmp_output = tmp_output.tolist()
-                # print(tmp_output)
-                # print(np.size(tmp_output))
-                tmp_output = matlab.double(tmp_output)
-                evaluation_result_left = engine.rnn_game_result(tmp_output)
-            if game_vehicle_right != -1:
-                tmp_output, h_state = myNet(rnn_input_tensor_right)
-                tmp_output = tmp_output.T
-                tmp_output = tmp_output.detach().numpy()
-                tmp_output = tmp_output.tolist()
-                # print(tmp_output)
-                # print(np.size(tmp_output))
-                tmp_output = matlab.double(tmp_output)
-                evaluation_result_right = engine.rnn_game_result(tmp_output)
-            # 1-yeild  2-pass  3-lane change
+                            if game_vehicle_right != -1:
+                                for time_index in range(time_step):
+                                    rnn_input_right[time_index, 0] = vehicle_s[time_index - 5]
+                                    rnn_input_right[time_index, 1] = game_vehicle_right_v[time_index - 5] - vehicle_v[
+                                        time_index - 5]
+                                    rnn_input_right[time_index, 2] = game_vehicle_right_s[time_index - 5] - vehicle_s[
+                                        time_index - 5]
+                                    if front_vehicle != -1:
+                                        rnn_input_right[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[
+                                            time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 3] = OBSERVE_RANGE
+                                    if game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 4] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 5] = game_front_vehicle_right_s[time_index - 5] - \
+                                                                         vehicle_s[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 4] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         vehicle_v[time_index - 5]
+                                        rnn_input_right[time_index, 5] = OBSERVE_RANGE
+                                    if game_front_vehicle_right != -1 and front_vehicle != -1:
+                                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         front_vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - \
+                                                                         front_vehicle_s[
+                                                                             time_index - 5]
+                                    elif game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         lane_list[
+                                                                             cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - (
+                                                vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                                    elif front_vehicle != -1:
+                                        rnn_input_right[time_index, 6] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         front_vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - \
+                                                                         front_vehicle_s[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 6] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         lane_list[
+                                                                             cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_right[time_index, 7] = 0
+                                    if game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 8] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         game_vehicle_right_v[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 8] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         game_vehicle_right_v[time_index - 5]
 
-            print(evaluation_result_left, evaluation_result_right)
+                            rnn_input_left = np.array([rnn_input_left])
+                            rnn_input_tensor_left = torch.from_numpy(rnn_input_left).float()
 
-            if cur_lane_info.dist_to_next_road >= 100:
-                # 主动变道
-                # 先判断当前车道的行驶效率
-                if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
+                            rnn_input_right = np.array([rnn_input_right])
+                            rnn_input_tensor_right = torch.from_numpy(rnn_input_right).float()
+
+                            evaluation_result_left, evaluation_result_right = -1, -1
+
+                            if game_vehicle_left != -1:
+                                tmp_output, h_state = myNet_discretionary(rnn_input_tensor_left)
+                                tmp_output = tmp_output.T
+                                tmp_output = tmp_output.detach().numpy()
+                                tmp_output = tmp_output.tolist()
+                                # print(tmp_output)
+                                # print(np.size(tmp_output))
+                                tmp_output = matlab.double(tmp_output)
+                                evaluation_result_left = engine.rnn_game_result(tmp_output)
+                            if game_vehicle_right != -1:
+                                tmp_output, h_state = myNet_discretionary(rnn_input_tensor_right)
+                                tmp_output = tmp_output.T
+                                tmp_output = tmp_output.detach().numpy()
+                                tmp_output = tmp_output.tolist()
+                                # print(tmp_output)
+                                # print(np.size(tmp_output))
+                                tmp_output = matlab.double(tmp_output)
+                                evaluation_result_right = engine.rnn_game_result(tmp_output)
+                            # 1-yeild  2-pass  3-lane change
+
+                            print(evaluation_result_left, evaluation_result_right)
+
+                            if evaluation_result_left == 1 and evaluation_result_right == 1:
+                                print("111")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_upper_limit = min(obstacles_list[game_vehicle_left].s_velocity[-1],
+                                                        obstacles_list[game_vehicle_right].s_velocity[-1])
+                                # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 1 and evaluation_result_right == 2:
+                                print("222")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 1 and evaluation_result_right == 3:
+                                print("333")
+                                target_lane_id_game = cur_lane_info.right_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 2 and evaluation_result_right == 1:
+                                print("444")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 2 and evaluation_result_right == 2:
+                                print("555")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1],
+                                                        obstacles_list[game_vehicle_right].s_velocity[-1])
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 2 and evaluation_result_right == 3:
+                                print("666")
+                                target_lane_id_game = cur_lane_info.right_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 3 and evaluation_result_right == 1:
+                                print("777")
+                                target_lane_id_game = cur_lane_info.left_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 3 and evaluation_result_right == 2:
+                                print("888")
+                                target_lane_id_game = cur_lane_info.left_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 3 and evaluation_result_right == 3:
+                                print("999")
+                                target_lane_id_game = cur_lane_info.left_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == -1 and evaluation_result_right == -1:
+                                print("10")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                            elif evaluation_result_left == -1 and evaluation_result_right == 1:
+                                print("1111")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_upper_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == -1 and evaluation_result_right == 2:
+                                print("1212")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == -1 and evaluation_result_right == 3:
+                                print("1313")
+                                target_lane_id_game = cur_lane_info.right_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 1 and evaluation_result_right == -1:
+                                print("1414")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_upper_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 2 and evaluation_result_right == -1:
+                                print("1515")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 3 and evaluation_result_right == -1:
+                                print("1616")
+                                target_lane_id_game = cur_lane_info.left_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+
+                    elif selectable_target_lane_list[0] == selectable_lanes[1]:
+                        # 左车道
+                        game_vehicle_left = -1
+                        game_front_vehicle_left = -1
+                        front_vehicle = -1
+
+                        vehicle_s = available_lanes[cur_lane_info.cur_lane_id].before_length
+
+                        for i in [0, 1]:
+                            print("lane id %d" % selectable_lanes[i])
+                            target_lane_obstacles_s_id = []
+                            for obstacle_index in obstacles_list.keys():
+                                obstacle_info = obstacles_list[obstacle_index]
+                                if obstacle_info.type == 'VEHICLE' or obstacle_info.type == 'BICYCLE' or obstacle_info.type == 'PEDESTRIAN':
+                                    if obstacle_info.cur_lane_id == selectable_lanes[i] and selectable_lanes[i] > 0:
+                                        target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
+                            target_lane_obstacles_s_id.sort()
+                            before_vehicle_id = []
+                            after_vehicle_id = []
+                            if i == 0:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    front_vehicle = after_vehicle_id[0]
+                            elif i == 1:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if vehicle_s - 20 < target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    game_front_vehicle_left = after_vehicle_id[0]
+                                if before_vehicle_id:
+                                    game_vehicle_left = before_vehicle_id[-1]
+
+                        print("front vehicle %d " % front_vehicle)
+                        print("game left vehicle %d " % game_vehicle_left)
+                        # print("game right vehicle %d " % game_vehicle_right)
+                        print("game front left vehicle %d " % game_front_vehicle_left)
+                        # print("game front right vehicle %d " % game_front_vehicle_right)
+
+                        vehicle_s, vehicle_v = [], []
+
+                        temp_lane = lane_list[cur_lane_info.cur_lane_id]
+                        points_x, points_y = [], []
+                        for j in range(len(temp_lane.points)):
+                            points_x.append(temp_lane.points[j].x)
+                            points_y.append(temp_lane.points[j].y)
+                        points_num = len(points_x)
+                        points_x = np.array(points_x)
+                        points_y = np.array(points_y)
+
+                        is_ready = True
+
+                        # calculate self vehicle's state
+                        for history_pose in history_pose_data:
+                            result = lane_projection(points_x, points_y, points_num,
+                                                     history_pose.mapX, history_pose.mapY, history_pose.mapHeading)
+                            vehicle_v.append(math.cos(result[4]) * history_pose.mVf)
+                            vehicle_s.append(result[5])
+                        vehicle_s = np.array(vehicle_s)
+                        vehicle_v = np.array(vehicle_v)
+                        if len(vehicle_v) < 5:
+                            is_ready = False
+
+                        # fill in right parameters
+                        if game_vehicle_left != -1:
+                            game_vehicle_left_s = np.array(obstacles_list[game_vehicle_left].s_record)
+                            game_vehicle_left_v = np.array(obstacles_list[game_vehicle_left].s_velocity)
+                            if len(game_vehicle_left_s) < 5:
+                                is_ready = False
+                        if game_front_vehicle_left != -1:
+                            game_front_vehicle_left_s = np.array(obstacles_list[game_front_vehicle_left].s_record)
+                            game_front_vehicle_left_v = np.array(obstacles_list[game_front_vehicle_left].s_velocity)
+                            if len(game_front_vehicle_left_s) < 5:
+                                is_ready = False
+                        if front_vehicle != -1:
+                            front_vehicle_s = np.array(obstacles_list[front_vehicle].s_record)
+                            front_vehicle_v = np.array(obstacles_list[front_vehicle].s_velocity)
+                            if len(front_vehicle_s) < 5:
+                                is_ready = False
+
+                        rnn_input_left = np.zeros((time_step, input_size_discretionary))
+
+                        if is_ready:
+                            if game_vehicle_left != -1:
+                                for time_index in range(time_step):
+
+                                    rnn_input_left[time_index, 0] = vehicle_s[time_index - 5]
+                                    rnn_input_left[time_index, 1] = game_vehicle_left_v[time_index - 5] - vehicle_v[
+                                        time_index - 5]
+                                    rnn_input_left[time_index, 2] = game_vehicle_left_s[time_index - 5] - vehicle_s[
+                                        time_index - 5]
+                                    if front_vehicle != -1:
+                                        rnn_input_left[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[
+                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 3] = OBSERVE_RANGE
+                                    if game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 4] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        vehicle_v[
+                                                                            time_index - 5]
+                                        rnn_input_left[time_index, 5] = game_front_vehicle_left_s[time_index - 5] - \
+                                                                        vehicle_s[
+                                                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 4] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        vehicle_v[time_index - 5]
+                                        rnn_input_left[time_index, 5] = OBSERVE_RANGE
+                                    if game_front_vehicle_left != -1 and front_vehicle != -1:
+                                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        front_vehicle_v[time_index - 5]
+                                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - \
+                                                                        front_vehicle_s[time_index - 5]
+                                    elif game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 6] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        lane_list[
+                                                                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_left[time_index, 7] = game_front_vehicle_left_s[time_index - 5] - (
+                                                vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                                    elif front_vehicle != -1:
+                                        rnn_input_left[time_index, 6] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        front_vehicle_v[
+                                                                            time_index - 5]
+                                        rnn_input_left[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - \
+                                                                        front_vehicle_s[
+                                                                            time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 6] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        lane_list[
+                                                                            cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_left[time_index, 7] = 0
+                                    if game_front_vehicle_left != -1:
+                                        rnn_input_left[time_index, 8] = game_front_vehicle_left_v[time_index - 5] - \
+                                                                        game_vehicle_left_v[time_index - 5]
+                                    else:
+                                        rnn_input_left[time_index, 8] = lane_list[
+                                                                            cur_lane_info.left_lane_id].speedUpperLimit / 3.6 - \
+                                                                        game_vehicle_left_v[time_index - 5]
+                                # rnn_input_left[time_index, 9] = left_priority
+
+                            rnn_input_left = np.array([rnn_input_left])
+                            rnn_input_tensor_left = torch.from_numpy(rnn_input_left).float()
+
+                            evaluation_result_left = -1
+
+                            if game_vehicle_left != -1:
+                                tmp_output, h_state = myNet_discretionary(rnn_input_tensor_left)
+                                tmp_output = tmp_output.T
+                                tmp_output = tmp_output.detach().numpy()
+                                tmp_output = tmp_output.tolist()
+                                # print(tmp_output)
+                                # print(np.size(tmp_output))
+                                tmp_output = matlab.double(tmp_output)
+                                evaluation_result_left = engine.rnn_game_result(tmp_output)
+
+                            # 1-yeild  2-pass  3-lane change
+
+                            print("evaluation_result_left %d" % evaluation_result_left)
+
+                            if evaluation_result_left == 1:
+                                print("111")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_upper_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                                obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 2:
+                                print("444")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == 3:
+                                print("777")
+                                target_lane_id_game = cur_lane_info.left_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
+                                obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_left == -1:
+                                print("10")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+
+                    elif selectable_target_lane_list[0] == selectable_lanes[2]:
+                        game_vehicle_right = -1
+                        game_front_vehicle_right = -1
+                        front_vehicle = -1
+
+                        vehicle_s = available_lanes[cur_lane_info.cur_lane_id].before_length
+
+                        for i in [0,2]:
+                            print("lane id %d" % selectable_lanes[i])
+                            target_lane_obstacles_s_id = []
+                            for obstacle_index in obstacles_list.keys():
+                                obstacle_info = obstacles_list[obstacle_index]
+                                if obstacle_info.type == 'VEHICLE' or obstacle_info.type == 'BICYCLE' or obstacle_info.type == 'PEDESTRIAN':
+                                    if obstacle_info.cur_lane_id == selectable_lanes[i] and selectable_lanes[i] > 0:
+                                        target_lane_obstacles_s_id.append([obstacle_info.s_record[-1], obstacle_index])
+                            target_lane_obstacles_s_id.sort()
+                            before_vehicle_id = []
+                            after_vehicle_id = []
+                            if i == 0:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    front_vehicle = after_vehicle_id[0]
+                            elif i == 2:
+                                for j in range(len(target_lane_obstacles_s_id)):
+                                    if vehicle_s - 20 < target_lane_obstacles_s_id[j][0] < vehicle_s:
+                                        before_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                    else:
+                                        after_vehicle_id.append(target_lane_obstacles_s_id[j][1])
+                                if after_vehicle_id:
+                                    game_front_vehicle_right = after_vehicle_id[0]
+                                if before_vehicle_id:
+                                    game_vehicle_right = before_vehicle_id[-1]
+
+                        print("front vehicle %d " % front_vehicle)
+                        # print("game left vehicle %d " % game_vehicle_left)
+                        print("game right vehicle %d " % game_vehicle_right)
+                        # print("game front left vehicle %d " % game_front_vehicle_left)
+                        print("game front right vehicle %d " % game_front_vehicle_right)
+
+                        vehicle_s, vehicle_v = [], []
+
+                        temp_lane = lane_list[cur_lane_info.cur_lane_id]
+                        points_x, points_y = [], []
+                        for j in range(len(temp_lane.points)):
+                            points_x.append(temp_lane.points[j].x)
+                            points_y.append(temp_lane.points[j].y)
+                        points_num = len(points_x)
+                        points_x = np.array(points_x)
+                        points_y = np.array(points_y)
+
+                        is_ready = True
+
+                        # calculate self vehicle's state
+                        for history_pose in history_pose_data:
+                            result = lane_projection(points_x, points_y, points_num,
+                                                     history_pose.mapX, history_pose.mapY, history_pose.mapHeading)
+                            vehicle_v.append(math.cos(result[4]) * history_pose.mVf)
+                            vehicle_s.append(result[5])
+                        vehicle_s = np.array(vehicle_s)
+                        vehicle_v = np.array(vehicle_v)
+                        if len(vehicle_v) < 5:
+                            is_ready = False
+
+                        # fill in right parameters
+                        if game_vehicle_right != -1:
+                            game_vehicle_right_s = np.array(obstacles_list[game_vehicle_right].s_record)
+                            game_vehicle_right_v = np.array(obstacles_list[game_vehicle_right].s_velocity)
+                            if len(game_vehicle_right_s) < 5:
+                                is_ready = False
+                        if game_front_vehicle_right != -1:
+                            game_front_vehicle_right_s = np.array(obstacles_list[game_front_vehicle_right].s_record)
+                            game_front_vehicle_right_v = np.array(obstacles_list[game_front_vehicle_right].s_velocity)
+                            if len(game_front_vehicle_right_s) < 5:
+                                is_ready = False
+                        if front_vehicle != -1:
+                            front_vehicle_s = np.array(obstacles_list[front_vehicle].s_record)
+                            front_vehicle_v = np.array(obstacles_list[front_vehicle].s_velocity)
+                            if len(front_vehicle_s) < 5:
+                                is_ready = False
+
+                        rnn_input_right = np.zeros((time_step, input_size_discretionary))
+
+                        if is_ready:
+                            if game_vehicle_right != -1:
+                                for time_index in range(time_step):
+                                    rnn_input_right[time_index, 0] = vehicle_s[time_index - 5]
+                                    rnn_input_right[time_index, 1] = game_vehicle_right_v[time_index - 5] - vehicle_v[
+                                        time_index - 5]
+                                    rnn_input_right[time_index, 2] = game_vehicle_right_s[time_index - 5] - vehicle_s[
+                                        time_index - 5]
+                                    if front_vehicle != -1:
+                                        rnn_input_right[time_index, 3] = front_vehicle_s[time_index - 5] - vehicle_s[
+                                            time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 3] = OBSERVE_RANGE
+                                    if game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 4] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 5] = game_front_vehicle_right_s[time_index - 5] - \
+                                                                         vehicle_s[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 4] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         vehicle_v[time_index - 5]
+                                        rnn_input_right[time_index, 5] = OBSERVE_RANGE
+                                    if game_front_vehicle_right != -1 and front_vehicle != -1:
+                                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         front_vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - \
+                                                                         front_vehicle_s[
+                                                                             time_index - 5]
+                                    elif game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 6] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         lane_list[
+                                                                             cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_right[time_index, 7] = game_front_vehicle_right_s[time_index - 5] - (
+                                                vehicle_s[time_index - 5] + OBSERVE_RANGE)
+                                    elif front_vehicle != -1:
+                                        rnn_input_right[time_index, 6] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         front_vehicle_v[
+                                                                             time_index - 5]
+                                        rnn_input_right[time_index, 7] = (vehicle_s[time_index - 5] + OBSERVE_RANGE) - \
+                                                                         front_vehicle_s[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 6] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         lane_list[
+                                                                             cur_lane_info.cur_lane_id].speedUpperLimit / 3.6
+                                        rnn_input_right[time_index, 7] = 0
+                                    if game_front_vehicle_right != -1:
+                                        rnn_input_right[time_index, 8] = game_front_vehicle_right_v[time_index - 5] - \
+                                                                         game_vehicle_right_v[
+                                                                             time_index - 5]
+                                    else:
+                                        rnn_input_right[time_index, 8] = lane_list[
+                                                                             cur_lane_info.right_lane_id].speedUpperLimit / 3.6 - \
+                                                                         game_vehicle_right_v[time_index - 5]
+
+                            rnn_input_right = np.array([rnn_input_right])
+                            rnn_input_tensor_right = torch.from_numpy(rnn_input_right).float()
+
+                            evaluation_result_right = -1
+
+                            if game_vehicle_right != -1:
+                                tmp_output, h_state = myNet_discretionary(rnn_input_tensor_right)
+                                tmp_output = tmp_output.T
+                                tmp_output = tmp_output.detach().numpy()
+                                tmp_output = tmp_output.tolist()
+                                # print(tmp_output)
+                                # print(np.size(tmp_output))
+                                tmp_output = matlab.double(tmp_output)
+                                evaluation_result_right = engine.rnn_game_result(tmp_output)
+                            # 1-yeild  2-pass  3-lane change
+
+                            print("evaluation_result_right %d" % evaluation_result_right)
+
+                            if evaluation_result_right == 1:
+                                print("111")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_upper_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
+                                obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_right == 2:
+                                print("222")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_right == 3:
+                                print("333")
+                                target_lane_id_game = cur_lane_info.right_lane_id
+                                speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
+                                obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
+                                obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
+                            elif evaluation_result_right == -1:
+                                print("10")
+                                target_lane_id_game = cur_lane_info.cur_lane_id
+
+        elif 20 < cur_lane_info.dist_to_next_road < 100:
+            # 条件有待确定
+            if lane_priority[0] == 2:
+                if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
                         lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
                         available_lanes[
                             selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
-                    # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
                     target_lane_id = cur_lane_info.cur_lane_id
                 else:
-                    print("i need to change lane")
-                    # 有变道需求
-                    if evaluation_result_left == 1 and evaluation_result_right == 1:
-                        print("111")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_upper_limit = min(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
-                        # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
-                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 1 and evaluation_result_right == 2:
-                        print("222")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 1 and evaluation_result_right == 3:
-                        print("333")
+                    if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
+                        if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+                            2] > EPS + LANE_CHANGE_BASE_LENGTH:
+                            target_lane_id = cur_lane_info.right_lane_id
+                        elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[
+                            1] > EPS + LANE_CHANGE_BASE_LENGTH:
+                            target_lane_id = cur_lane_info.left_lane_id
+                    elif lane_reward[1] > lane_reward[0] * 2 + EPS and lane_drivable_length[
+                        1] > EPS + LANE_CHANGE_BASE_LENGTH:
+                        target_lane_id = cur_lane_info.left_lane_id
+                    elif lane_reward[2] > lane_reward[0] * 2 + EPS and lane_drivable_length[
+                        2] > EPS + LANE_CHANGE_BASE_LENGTH:
                         target_lane_id = cur_lane_info.right_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 2 and evaluation_result_right == 1:
-                        print("444")
+                    else:
                         target_lane_id = cur_lane_info.cur_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 2 and evaluation_result_right == 2:
-                        print("555")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 2 and evaluation_result_right == 3:
-                        print("666")
-                        target_lane_id = cur_lane_info.right_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 3 and evaluation_result_right == 1:
-                        print("777")
-                        target_lane_id = cur_lane_info.left_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 3 and evaluation_result_right == 2:
-                        print("888")
-                        target_lane_id = cur_lane_info.left_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 3 and evaluation_result_right == 3:
-                        print("999")
-                        target_lane_id = cur_lane_info.left_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == -1 and evaluation_result_right == -1:
-                        print("10")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                    elif evaluation_result_left == -1 and evaluation_result_right == 1:
-                        print("1111")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_upper_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        # speed_lower_limit = max(obstacles_list[game_vehicle_left].s_velocity[-1], obstacles_list[game_vehicle_right].s_velocity[-1])
-                        obstacles_list[game_vehicle_right].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == -1 and evaluation_result_right == 2:
-                        print("1212")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == -1 and evaluation_result_right == 3:
-                        print("1313")
-                        target_lane_id = cur_lane_info.right_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_right].s_velocity[-1]
-                        obstacles_list[game_vehicle_right].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_right].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 1 and evaluation_result_right == -1:
-                        print("1414")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_upper_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = GIVE_WAY
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 2 and evaluation_result_right == -1:
-                        print("1515")
-                        target_lane_id = cur_lane_info.cur_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                    elif evaluation_result_left == 3 and evaluation_result_right == -1:
-                        print("1616")
-                        target_lane_id = cur_lane_info.left_lane_id
-                        speed_lower_limit = obstacles_list[game_vehicle_left].s_velocity[-1]
-                        obstacles_list[game_vehicle_left].sub_decision = OVERTAKE
-                        obstacles_list[game_vehicle_left].safe_distance = MIN_SAFE_DISTANCE
-                    if left_priority == 0 and target_lane_id == cur_lane_info.left_lane_id:
-                        target_lane_id = cur_lane_info.cur_lane_id
-                    if right_priority == 0 and target_lane_id == cur_lane_info.right_lane_id:
-                        target_lane_id = cur_lane_info.cur_lane_id
-            # 先判断是否需要强制性变道到优先级高的车道
-            elif 20 < cur_lane_info.dist_to_next_road < 100:
-                # 条件有待确定
-                target_lane_id = cur_lane_info.cur_lane_id
-                # if lane_priority[0] == 2:
             else:
-                target_lane_id = cur_lane_info.cur_lane_id
+                max_lane_reward = max(lane_reward)
+                if max_lane_reward - 0 > EPS:
+                    if lane_reward[1] == max(lane_reward):
+                        target_lane_id = cur_lane_info.left_lane_id
+                    elif lane_reward[2] == max(lane_reward):
+                        target_lane_id = cur_lane_info.right_lane_id
+                else:
+                    target_lane_id = cur_lane_info.cur_lane_id
         else:
             target_lane_id = cur_lane_info.cur_lane_id
-
-
-
-    #
-    #     temp_priority_list = []
-    #     # 与剩余路径长短成反比的优先级系数
-    #     if cur_lane_info.dist_to_next_road <= 100:
-    #         lane_priority += [cur_lane_info.cur_priority, left_priority, right_priority]
-    #     else:
-    #         if cur_lane_info.cur_priority == 2:
-    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-    #         else:
-    #             temp_priority_list.append(cur_lane_info.cur_priority)
-    #         if left_priority == 2:
-    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-    #         else:
-    #             temp_priority_list.append(left_priority)
-    #         if right_priority == 2:
-    #             temp_priority_list.append(1 + 100 / cur_lane_info.dist_to_next_road)
-    #         else:
-    #             temp_priority_list.append(left_priority)
-    #         lane_priority += temp_priority_list
-    #
-    #     lane_drivable_length = []
-    #     lane_drivable_length_ratio = []
-    #     lane_efficiency_ratio = []
-    #     lane_efficiency = []
-    #     for i in range(len(selectable_lanes)):
-    #         if selectable_lanes[i] > 0:
-    #             efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
-    #                     lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
-    #             lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
-    #             lane_efficiency_ratio.append(efficiency)
-    #             if available_lanes[selectable_lanes[i]].after_length < EPS:
-    #                 free_space = 0
-    #             else:
-    #                 free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
-    #                                                                                                   selectable_lanes[
-    #                                                                                                       i]].after_length,
-    #                                                                                               OBSERVE_RANGE)
-    #             lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
-    #             lane_drivable_length_ratio.append(free_space)
-    #
-    #             lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
-    #         else:
-    #             lane_reward.append(0)
-    #             lane_efficiency_ratio.append(0)
-    #             lane_drivable_length_ratio.append(0)
-    #             lane_efficiency.append(0)
-    #             lane_drivable_length.append(0)
-    #     rospy.loginfo("cur left right lane ids %s" % list(selectable_lanes))
-    #     rospy.loginfo("lane_priority %s" % list(lane_priority))
-    #     rospy.loginfo("can_change_constraint %s" % list(can_change_constraint))
-    #     rospy.loginfo("lane_reward %s" % list(lane_reward))
-    #     rospy.loginfo("lane_efficiency %s" % list(lane_efficiency))
-    #     rospy.loginfo("lane_efficiency_ratio %s" % list(lane_efficiency_ratio))
-    #     rospy.loginfo("lane_drivable_length %s" % list(lane_drivable_length))
-    #     rospy.loginfo("lane_drivable_length_ratio %s" % list(lane_drivable_length_ratio))
-    #
-    #     rospy.loginfo("dis to next road %f" % cur_lane_info.dist_to_next_road)
-    #
-    #     # 先判断是否需要强制性变道到优先级高的车道
-    #     if 20 < cur_lane_info.dist_to_next_road < 100:
-    #         # 条件有待确定
-    #         if lane_priority[0] == 2:
-    #             if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.2 * (
-    #                     lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
-    #                     available_lanes[
-    #                         selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
-    #                 target_lane_id = cur_lane_info.cur_lane_id
-    #             else:
-    #                 if lane_reward[1] > lane_reward[0] * 2 + EPS and lane_reward[2] > lane_reward[0] * 2 + EPS:
-    #                     if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[
-    #                         2] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                         target_lane_id = cur_lane_info.right_lane_id
-    #                     elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[
-    #                         1] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                         target_lane_id = cur_lane_info.left_lane_id
-    #                 elif lane_reward[1] > lane_reward[0] * 2 + EPS and lane_drivable_length[
-    #                     1] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                     target_lane_id = cur_lane_info.left_lane_id
-    #                 elif lane_reward[2] > lane_reward[0] * 2 + EPS and lane_drivable_length[
-    #                     2] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                     target_lane_id = cur_lane_info.right_lane_id
-    #                 else:
-    #                     target_lane_id = cur_lane_info.cur_lane_id
-    #         else:
-    #             max_lane_reward = max(lane_reward)
-    #             if max_lane_reward - 0 > EPS:
-    #                 if lane_reward[1] == max(lane_reward):
-    #                     target_lane_id = cur_lane_info.left_lane_id
-    #                 elif lane_reward[2] == max(lane_reward):
-    #                     target_lane_id = cur_lane_info.right_lane_id
-    #             else:
-    #                 target_lane_id = cur_lane_info.cur_lane_id
-    #     elif cur_lane_info.dist_to_next_road <= 20:
-    #         target_lane_id = cur_lane_info.cur_lane_id
-    #
-    #     elif cur_lane_info.dist_to_next_road >= 100:
-    #         # 先判断当前车道的行驶效率
-    #         if available_lanes[cur_lane_info.cur_lane_id].driving_efficiency > 0.6 * (
-    #                 lane_list[cur_lane_info.cur_lane_id].speedUpperLimit / 3.6) or \
-    #                 available_lanes[
-    #                     selectable_lanes[0]].front_drivable_length > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH:
-    #             # 添加  or lane_drivable_length[0] > OBSERVE_RANGE - LANE_CHANGE_BASE_LENGTH是为了避免视野内障碍物还没看全就急于做出变道决策，要保证有变道的足够空间。
-    #             target_lane_id = cur_lane_info.cur_lane_id
-    #         else:
-    #             if lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_reward[2] > lane_reward[0] * 1.2 + EPS:
-    #                 if lane_reward[2] > lane_reward[1] * 1.2 + EPS and lane_drivable_length[
-    #                     2] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                     target_lane_id = cur_lane_info.right_lane_id
-    #                 elif lane_reward[2] <= lane_reward[1] * 1.2 + EPS and lane_drivable_length[
-    #                     1] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                     target_lane_id = cur_lane_info.left_lane_id
-    #             elif lane_reward[1] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[
-    #                 1] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                 target_lane_id = cur_lane_info.left_lane_id
-    #             elif lane_reward[2] > lane_reward[0] * 1.2 + EPS and lane_drivable_length[
-    #                 2] > EPS + LANE_CHANGE_BASE_LENGTH:
-    #                 target_lane_id = cur_lane_info.right_lane_id
-    #
-    #             if target_lane_id == -1:
-    #                 if lane_drivable_length[1] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and \
-    #                         lane_reward[1] - lane_reward[0] > EPS:
-    #                     target_lane_id = cur_lane_info.left_lane_id
-    #                 elif lane_drivable_length[2] - lane_drivable_length[0] > EPS + 2 * LANE_CHANGE_BASE_LENGTH and \
-    #                         lane_reward[2] - lane_reward[0] > EPS:
-    #                     target_lane_id = cur_lane_info.right_lane_id
-    #                 else:
-    #                     target_lane_id = cur_lane_info.cur_lane_id
-    #     if target_lane_id <= 0:
-    #         target_lane_id = cur_lane_info.cur_lane_id
-    #     if target_lane_id == cur_lane_info.left_lane_id and can_change_constraint[1] <= 0:
-    #         target_lane_id = cur_lane_info.cur_lane_id
-    #     if target_lane_id == cur_lane_info.right_lane_id and can_change_constraint[2] <= 0:
-    #         target_lane_id = cur_lane_info.cur_lane_id
-    #
-    # # elif scenario == "intersection":
-    # #     target_lane_id = cur_lane_info.cur_lane_id
 
     else:
         target_lane_id = cur_lane_info.cur_lane_id
@@ -2116,7 +2513,7 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
 
     rospy.loginfo("this target lane id %d" % target_lane_id)
     rospy.loginfo("next target lane id%d" % next_lane_id)
-    return target_lane_id, next_lane_id
+    return target_lane_id, next_lane_id, target_lane_id_game
 
 
 def lanes_of_interest_selector(lane_list, pose_data, scenario, available_lanes, target_lane_id, next_lane_id):
@@ -2776,7 +3173,7 @@ class InLaneDriving(smach.State):
     def __init__(self):
         smach.State.__init__(self,
                              outcomes=['park', 'intersection', 'merge_and_across', 'need_to_change_lane', 'error',
-                                       'finished', 'stop_line'],
+                                       'finished', 'stop_line', 'lane_change_game'],
                              input_keys=['lane_list', 'obstacles_list', 'signs_data',
                                          'lights_list', 'pose_data', 'parking_slots_list', 'history_pose_data'],
                              output_keys=['lane_list', 'obstacles_list', 'signs_data',
@@ -2870,8 +3267,12 @@ class InLaneDriving(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
+
+            if target_lane_id_game != -1:
+                last_target_lane_id_ugv = target_lane_id_game
+                return 'lane_change_game'
 
             this_target_lane_id_ugv = target_lane_id
 
@@ -2953,7 +3354,7 @@ class LaneChangePreparing(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
             this_target_lane_id_ugv = target_lane_id
@@ -3040,7 +3441,7 @@ class LaneChanging(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
 
             last_chosen_lane_id_ugv = target_lane_id
@@ -3105,7 +3506,7 @@ class LaneChangingGameTheory(smach.State):
         while not rospy.is_shutdown():
             rospy.loginfo("currently in LaneChanging")
 
-            global lane_change_calm_down_start_time, last_chosen_lane_id_ugv
+            global lane_change_calm_down_start_time, last_chosen_lane_id_ugv, last_target_lane_id_ugv
             start_time = rospy.get_time()
             rospy.loginfo("start time %f" % start_time)
             user_data_updater(user_data)
@@ -3123,31 +3524,21 @@ class LaneChangingGameTheory(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes, user_data.obstacles_list, user_data.history_pose_data)
+            # if target_lane_id_game != last_target_lane_id_ugv:
+            #     return 'lane_change_cancelled'
 
-            last_chosen_lane_id_ugv = target_lane_id
-
-            # if target_lane_id != last_target_lane_id_ugv and (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_CALM_DOWN:
-            #         return 'lane_change_cancelled'
+            last_chosen_lane_id_ugv = target_lane_id_game
 
             if last_target_lane_id_ugv == current_lane_info.cur_lane_id:
                 return 'lane_change_completed'
 
-            rospy.loginfo("final target lane id %d" % target_lane_id)
-            is_ready, speed_upper_limit_merge = merge_priority_decider(last_target_lane_id_ugv,
-                                                                       user_data.obstacles_list,
-                                                                       user_data.pose_data, available_lanes)
-            if not is_ready:
-                'lane_change_cancelled'
-
-            if (rospy.get_time() - lane_change_calm_down_start_time) > TIME_LANE_CHANGE_DEADLINE:
-                return 'lane_change_cancelled'
+            rospy.loginfo("final target lane id %d" % target_lane_id_game)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
                                                                        current_lane_info,
-                                                                       last_target_lane_id_ugv, user_data.pose_data,
-                                                                       certain_speed_limit=speed_upper_limit_merge)
+                                                                       last_target_lane_id_ugv, user_data.pose_data)
 
             desired_length = desired_length_decider(available_lanes, last_target_lane_id_ugv, speed_upper_limit)
 
@@ -3270,7 +3661,7 @@ class ApproachIntersection(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -3333,7 +3724,7 @@ class CreepToIntersectionWithLights(smach.State):
                 return 'enter'
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
@@ -3415,7 +3806,7 @@ class CreepToIntersectionWithoutLights(smach.State):
                 return 'enter'
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
@@ -3488,7 +3879,7 @@ class EnterIntersection(smach.State):
                 return 'pass'
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+            target_lane_id, next_lane_id, target_lane_id_game= target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
@@ -3586,7 +3977,7 @@ class ApproachStopLine(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -3646,7 +4037,7 @@ class CreepToStopLine(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
@@ -3728,7 +4119,7 @@ class PassStopLine(smach.State):
                 return 'pass'
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data,
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data,
                                                                 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
@@ -3813,7 +4204,7 @@ class CreepForOpportunity(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                                 current_lane_info, available_lanes)
 
             if target_lane_id == -1:
@@ -3891,7 +4282,7 @@ class ExecuteMerge(smach.State):
                                                                           user_data.obstacles_list, current_lane_info,
                                                                           available_lanes)
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'merge',
                                                                 current_lane_info, available_lanes)
 
             if target_lane_id == -1:
@@ -3969,7 +4360,7 @@ class DriveAlongLane(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -4169,7 +4560,7 @@ class DriveAndStopInFront(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, user_data.pose_data, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -4243,7 +4634,7 @@ class ExecutePark(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -4380,7 +4771,7 @@ class ExitParkingSlot(smach.State):
                                                                           available_lanes)
 
             # compare the reward value among the surrounding lanes.
-            target_lane_id, next_lane_id = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
+            target_lane_id, next_lane_id, target_lane_id_game = target_lane_selector(user_data.lane_list, virtual_pose, 'lane_follow',
                                                                 current_lane_info, available_lanes)
 
             speed_upper_limit, speed_lower_limit = speed_limit_decider(user_data.lane_list, available_lanes,
@@ -4587,8 +4978,9 @@ class StopImmediately(smach.State):
 def main():
     rospy.init_node('decision_smach')
 
-    global myNet
-    myNet = fillParameters(model_wb, myNet)
+    global myNet_discretionary, myNet_mandatory
+    myNet_discretionary = fillParameters(model_wb_discretionary, myNet_discretionary)
+    myNet_mandatory = fillParameters(model_wb_mandatory, myNet_mandatory)
 
     listener()
     server()
