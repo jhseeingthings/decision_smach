@@ -1107,7 +1107,7 @@ def listener():
     # Subscriber函数第一个参数是topic的名称，第二个参数是接受的数据类型，第三个参数是回调函数的名称
     rospy.Subscriber("global_pose", GlobalPose, global_pose_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_road", Road, road_callback, queue_size=1, buff_size=5000000)
-    rospy.Subscriber("obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
+    rospy.Subscriber("jhgao_obstacles", Obstacles, obstacles_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_lights", Lights, lights_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("traffic_signs", Signs, signs_callback, queue_size=1, buff_size=5000000)
     rospy.Subscriber("map_missions", Missions, mission_callback, queue_size=1, buff_size=5000000)
@@ -1618,22 +1618,25 @@ def target_lane_selector(lane_list, pose_data, scenario, cur_lane_info, availabl
         lane_efficiency = []
         for i in range(len(selectable_lanes)):
             if selectable_lanes[i] > 0:
-                # 行驶效率和可行驶距离都进行归一化操作
-                efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
-                        lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
-                lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
-                lane_efficiency_ratio.append(efficiency)
-                if available_lanes[selectable_lanes[i]].after_length < EPS:
-                    free_space = 0
+                if cur_lane_info.dist_to_next_road < 100:
+                    lane_reward.append(lane_priority[i] * can_change_constraint[i])
                 else:
-                    free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
-                                                                                                      selectable_lanes[
-                                                                                                          i]].after_length,
-                                                                                                  OBSERVE_RANGE)
-                lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
-                lane_drivable_length_ratio.append(free_space)
+                    # 行驶效率和可行驶距离都进行归一化操作
+                    efficiency = available_lanes[selectable_lanes[i]].driving_efficiency / (
+                            lane_list[selectable_lanes[i]].speedUpperLimit / 3.6)
+                    lane_efficiency.append(available_lanes[selectable_lanes[i]].driving_efficiency)
+                    lane_efficiency_ratio.append(efficiency)
+                    if available_lanes[selectable_lanes[i]].after_length < EPS:
+                        free_space = 0
+                    else:
+                        free_space = available_lanes[selectable_lanes[i]].front_drivable_length / min(available_lanes[
+                                                                                                          selectable_lanes[
+                                                                                                              i]].after_length,
+                                                                                                      OBSERVE_RANGE)
+                    lane_drivable_length.append(available_lanes[selectable_lanes[i]].front_drivable_length)
+                    lane_drivable_length_ratio.append(free_space)
 
-                lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
+                    lane_reward.append((0.5 * efficiency + 0.5 * free_space) * lane_priority[i] * can_change_constraint[i])
             else:
                 lane_reward.append(0)
                 lane_efficiency_ratio.append(0)
